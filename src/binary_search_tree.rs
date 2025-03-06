@@ -1,7 +1,8 @@
 use std::{
     cmp::Ordering,
     fs,
-    path::Path
+    path::Path,
+    error::Error
 };
 
 type Child = Option<Box<Node>>;
@@ -39,6 +40,13 @@ impl BST {
 
     pub fn read_from_file(path: &Path) -> Result<Self, String> {
         Ok(BST { root: None })
+    }
+
+    pub fn write_to_file(&self) -> Result<(), Box<dyn Error>> {
+        // get in order traversal iterator
+        // write the 
+
+        Ok(())
     }
 
     pub fn insert(&mut self, key: i32, data: String) -> Result<(), ()> {

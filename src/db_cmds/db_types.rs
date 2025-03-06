@@ -3,13 +3,16 @@
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::error::Error;
+
+use crate::DBError;
 
 pub struct Table {
     // TODO iron out what needs to be in table and what is fluff.
     name: Identifier,
-    path: String,
     attributes: Vec<(Identifier, Domain)>,
     record_count: i32,
+    primary_key: bool,
     offset: i32,
     record_length: i32,
     file: Option<File>,
@@ -17,19 +20,17 @@ pub struct Table {
 
 impl Table {
     pub fn new(
-        path: String,
         name: Identifier,
         attributes: Vec<(Identifier, Domain)>,
-    ) -> Result<Self, String> {
+        primary_key: bool,
+    ) -> Result<Self, Box<dyn Error>> {
         // TODO calculate offset & record_length
-
-        let table_path = path + "/" + name.name() + ".dat";
 
         Ok(Table {
             name,
-            path: table_path,
             attributes,
             record_count: 0,
+            primary_key,
             offset: 0,
             record_length: 0,
             file: None,
@@ -37,12 +38,12 @@ impl Table {
     }
 
     // TODO implement reading and writing logic for tables to a file.
-    pub fn read_from_file(path: &Path) -> Result<Self, String> {
+    pub fn read_from_file(path: &Path) -> Result<Self, Box<dyn Error>> {
         Ok(Table {
             name: Identifier::from("")?,
-            path: String::new(),
             attributes: Vec::new(),
             record_count: 0,
+            primary_key: true,
             offset: 0,
             record_length: 0,
             file: None,
@@ -53,17 +54,9 @@ impl Table {
         println!("table deets");
     }
 
-    pub fn write_meta(&mut self) -> Result<(), String> {
-        self.file = match File::create_new(&self.path) {
-            Ok(file) => Some(file),
-            Err(_) => {
-                return Err("Failed to create file for table allocation.
-            This is likely because this table already exists."
-                    .to_owned())
-            }
-        };
-
-        let file = self.file.as_mut().unwrap();
+    // TODO make dir a more restrictive type or somethin
+    pub fn write_meta(&mut self, dir: &str) -> Result<(), Box<dyn Error>> {
+        let mut file = File::create_new(format!("{dir}{}.dat", self.name.name()))?;
 
         // TODO clean up / standardize this writing process... also create a reading process
 
@@ -86,6 +79,8 @@ impl Table {
         file.write_all(&0_i32.to_be_bytes())
             .expect("Should be able to write to file."); // i32 default
 
+        self.file = Some(file);
+
         Ok(())
     }
 }
@@ -98,14 +93,14 @@ pub struct Identifier {
 }
 
 impl Identifier {
-    pub fn from(name: &str) -> Result<Self, String> {
+    pub fn from(name: &str) -> Result<Self, Box<dyn Error>> {
         if name.len() > 19 {
-            return Err("Identifier longer than 19 characters.".to_owned());
+            return Err(Box::new(DBError::ParseError("Identifer name cannot be longer than 19 characters")));
         }
 
         for c in name.chars() {
             if !c.is_ascii_alphanumeric() {
-                return Err("Identifier is not alphanumeric.".to_owned());
+                return Err(Box::new(DBError::ParseError("Identifier is not alphanumeric.")));
             }
         }
 
@@ -124,9 +119,9 @@ pub struct Text {
 }
 
 impl Text {
-    pub fn from(content: &str) -> Result<Self, String> {
+    pub fn from(content: &str) -> Result<Self, Box<dyn Error>> {
         if content.len() > 100 {
-            return Err("Text longer than 100 characters.".to_owned());
+            return Err(Box::new(DBError::ParseError("Text longer than 100 characters.")));
         }
 
         Ok(Text {
@@ -144,11 +139,8 @@ pub struct Integer {
 }
 
 impl Integer {
-    pub fn from(value: &str) -> Result<Self, String> {
-        let value = match value.parse() {
-            Ok(n) => n,
-            Err(_) => return Err("Failed to parse Integer value.".to_owned()),
-        };
+    pub fn from(value: &str) -> Result<Self, Box<dyn Error>> {
+        let value = value.parse()?;
 
         Ok(Integer { value })
     }
@@ -164,7 +156,7 @@ pub struct Float {
 }
 
 impl Float {
-    pub fn from(float: &str) -> Result<Self, String> {
+    pub fn from(float: &str) -> Result<Self, Box<dyn Error>> {
         let (int, float) = match float.split_once(".") {
             Some((int, float)) => (int, float),
             None => (float, ""),
@@ -177,7 +169,7 @@ impl Float {
         } else {
             let digits = Integer::from(float)?.value;
             if digits > 99 {
-                return Err("Failed to parse Float decimal value.".to_owned());
+                return Err(Box::new(DBError::ParseError("Failed to parse Float decimal value.")));
             }
             digits as u8
         };
@@ -194,12 +186,12 @@ pub enum Domain {
 }
 
 impl Domain {
-    pub fn from(descriptor: &str) -> Result<Self, String> {
+    pub fn from(descriptor: &str) -> Result<Self, Box<dyn Error>> {
         match descriptor {
             "Text" => Ok(Domain::Text),
             "Integer" => Ok(Domain::Integer),
             "Float" => Ok(Domain::Float),
-            _ => Err(format!("Invalid Domain type {descriptor}")),
+            _ => Err(Box::new(DBError::ParseError("Invalid Domain type {descriptor}"))),
         }
     }
 }

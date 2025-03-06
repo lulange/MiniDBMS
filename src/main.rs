@@ -3,7 +3,8 @@ use dbms::run;
 fn main() {
     if let Err(why) = run() {
         println!("{why}");
-    };
+        std::process::exit(1);
+    }
 }
 
 // BIG TODOS
