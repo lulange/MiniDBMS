@@ -1,19 +1,66 @@
-use binary_search_tree::BST;
-use db_cmds::db_types::Table;
+use db_types::Table;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
-use std::io;
+use std::fs;
 
-pub mod binary_search_tree;
-pub mod db_cmds;
+pub use db_cmds::run_cmd;
+pub use db_cmds::run_exit;
+
+mod binary_search_tree;
+mod db_cmds;
+mod db_types;
 
 pub struct Database {
-    pub path: String,
-    pub bst_map: HashMap<String, BST>,
-    pub table_map: HashMap<String, Table>,
+    path: String,
+    table_map: HashMap<String, Table>,
 }
 
+impl Database {
+    pub fn new() -> Self {
+        Database {
+            path: String::new(),
+            table_map: HashMap::new(),
+        }
+    }
+
+    pub fn build(path: String) -> Result<Self, Box<dyn Error>> {
+        let mut table_map = HashMap::new();
+
+        let db_files = match fs::read_dir(&path) {
+            Ok(read_dir) => read_dir,
+            Err(_) => return Err(Box::new(DBError::ParseError("Failed to read files in database directory."))),
+        };
+
+        eprintln!("\tReading tables in database directory...");
+
+        for file in db_files {
+            let file = file?;
+            let file_name = String::from(
+                file.file_name()
+                    .to_str()
+                    .expect("File name cannnot use non-ascii characters."),
+            );
+            let file_name_split = file_name
+                .rsplit_once(".")
+                .expect("File name should have a dot separated identifier.");
+
+            if let (table_name, "dat") = file_name_split {
+                table_map.insert(
+                    String::from(table_name),
+                    Table::read_from_file(table_name, &path)?,
+                );
+            }
+        }
+
+        Ok(Database {
+            path,
+            table_map
+        })
+    }
+}
+
+// TODO only bubble errors that should allow future commands to be run and then just print messages and continue
 #[derive(Debug)]
 pub enum DBError {
     ParseError(&'static str),
@@ -34,51 +81,11 @@ impl Display for DBError {
 impl Error for DBError {}
 
 
-
-pub fn run() -> Result<(), Box<dyn Error>> {
-    // a mutable reference will get passed around and treated like a singleton
-    let mut db = Database {
-        path: String::new(),
-        bst_map: HashMap::new(),
-        table_map: HashMap::new(),
-    };
-
-    let stdin: io::Stdin = io::stdin();
-    loop {
-        let mut line = String::new();
-        stdin.read_line(&mut line)?;
-        execute_cmds_from(line, &mut db)?;
-    }
-}
-
-fn execute_cmds_from(cmds: String, db: &mut Database) -> Result<(), Box<dyn Error>> {
-    for cmd in cmds.split_terminator('\n') {
-        db_cmds::execute(cmd, db)?;
-    }
-
-    Ok(())
-}
-
-
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
 
     // also can use #[should_panic] after #[test]
     // #[should_panic(expected = "less than or equal to 100")]
     // with panic!("less than or equal to 100");
-
-    #[test]
-    fn execute_blank() {
-        execute_cmds_from(
-            "".to_owned(),
-            &mut Database {
-                path: String::new(),
-                bst_map: HashMap::new(),
-                table_map: HashMap::new(),
-            },
-        )
-        .unwrap();
-    }
 }
