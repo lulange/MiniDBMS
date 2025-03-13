@@ -20,6 +20,8 @@ impl Error for BSTError {}
 
 type Child = Option<Box<Node>>;
 
+// TODO make a way that the BST can create itself from a table file if issues with syncing happen or in the case of certain commands
+
 #[derive(Debug)]
 struct Node {
     key: String,
