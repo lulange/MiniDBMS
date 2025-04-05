@@ -1,9 +1,10 @@
-use std::io;
 use dbms::Database;
+use std::io;
 
-// TODO remove case-sensitivity for all text processing...
+// TODO get rid of unnecessary pub keywords
+// TODO make errors for domain, key, integrity constraints... instead of the only ones I have
 // TODO make this wait till a semicolon is entered to execute a command... implement multi-line commands
-// TODO replace println! stuff with result<String> so that I can print out at top level or pipe to a file at top level
+// TODO make a way to store where outputs should be going to and change println! to print to there instead
 fn main() {
     // a mutable reference will get passed around and treated like a singleton
     let mut db = Database::new();
@@ -26,6 +27,19 @@ fn main() {
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // BIG TODOS
 /*

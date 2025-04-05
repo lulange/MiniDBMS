@@ -1,4 +1,4 @@
-use db_types::Table;
+use relation::Table;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
@@ -9,7 +9,9 @@ pub use db_cmds::run_exit;
 
 mod binary_search_tree;
 mod db_cmds;
-mod db_types;
+mod relation;
+mod logic;
+mod base;
 
 pub struct Database {
     path: String,
@@ -27,9 +29,13 @@ impl Database {
     pub fn build(path: String) -> Result<Self, Box<dyn Error>> {
         let mut table_map = HashMap::new();
 
-        let db_files = match fs::read_dir(&path) {
+        let db_files: fs::ReadDir = match fs::read_dir(&path) {
             Ok(read_dir) => read_dir,
-            Err(_) => return Err(Box::new(DBError::ParseError("Failed to read files in database directory."))),
+            Err(_) => {
+                return Err(Box::new(DBError::ParseError(
+                    "Failed to read files in database directory.",
+                )))
+            }
         };
 
         eprintln!("\tReading tables in database directory...");
@@ -53,10 +59,7 @@ impl Database {
             }
         }
 
-        Ok(Database {
-            path,
-            table_map
-        })
+        Ok(Database { path, table_map })
     }
 }
 
@@ -65,7 +68,7 @@ impl Database {
 pub enum DBError {
     ParseError(&'static str),
     ConstraintError(&'static str),
-    FileFormatError(&'static str)
+    FileFormatError(&'static str),
 }
 
 impl Display for DBError {
@@ -79,7 +82,6 @@ impl Display for DBError {
 }
 
 impl Error for DBError {}
-
 
 #[cfg(test)]
 mod tests {
