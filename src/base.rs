@@ -147,12 +147,12 @@ impl Float {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
         let four_bytes: [u8; 4] = bytes[0..4].try_into()?;
         let mut float = i32::from_be_bytes(four_bytes) as f64;
-        let decimal = bytes[4] as f64;
-        if decimal < 10. {
-            float += decimal / 10.;
-        } else if decimal < 100. {
-            float += decimal / 100.;
-        }
+        let decimal = if bytes[4] > 100 {
+            -((bytes[4]-100) as f64)
+        } else {
+            bytes[4] as f64
+        };
+        float += decimal / 100.;
         Ok(Float {
             float,
         })
@@ -160,14 +160,16 @@ impl Float {
 
     pub fn to_bytes(&self) -> [u8; 5] {
         let i = self.float as i32;
-        let f = ((self.float * 10.) as i32) - i * 10;
-        let f: u8 = f.try_into().unwrap();
+        let f = ((self.float - i as f64) * 100.).round();
+        let f: u8 = if f < 0.0 { (-f + 100.0) as u8 } else { f as u8 };
         let i = i.to_be_bytes();
         [i[0], i[1], i[2], i[3], f]
     }
 
     pub fn from(float: &str) -> Result<Self, Box<dyn Error>> {
-        Ok(Float{ float: float.parse()?})
+        let mut float = float.parse::<f64>()?;
+        float = (float*100.).round() / 100.; // remove extra precision
+        Ok(Float{ float })
     }
 
     pub fn value(&self) -> &f64 {
@@ -176,12 +178,22 @@ impl Float {
 
     pub fn to_string(&self) -> String {
         let i = self.float as i32;
-        let f = ((self.float * 10.) as i32) - i * 10;
-        let f: u8 = f.try_into().unwrap();
-        format!("{i}.{f}")
+        let f = ((self.float - i as f64) * 100.).round();
+        if f < 0.0 {
+            let f = -f as u8;
+            if i == 0 {
+                format!("-{i}.{f}")
+            } else {
+                format!("{i}.{f}")
+            }
+        } else {
+            let f = f as u8;
+            format!("{i}.{f}")
+        }
     }
 
     pub fn wrap(float: f64) -> Self {
+        let float = (float*100.).round() / 100.; // remove extra precision
         Float {
             float
         }
@@ -235,6 +247,8 @@ pub enum Data {
     Text(Text),
     Float(Float),
 }
+
+impl Eq for Data {}
 
 
 impl Data {
@@ -297,9 +311,38 @@ impl Data {
 
     pub fn to_string(&self) -> String {
         match self {
-            Data::Float(float) => float.float.to_string(),
+            Data::Float(float) => float.to_string(),
             Data::Integer(int) => int.value.to_string(),
             Data::Text(text) => text.content.to_string(),
         }
+    }
+
+    pub fn domain(&self) -> Domain {
+        match self {
+            Data::Float(_) => Domain::Float,
+            Data::Integer(_) => Domain::Integer,
+            Data::Text(_) => Domain::Text
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // also can use #[should_panic] after #[test]
+    // #[should_panic(expected = "less than or equal to 100")]
+    // with panic!("less than or equal to 100");
+
+
+    #[test]
+    fn to_bytes_and_back() {
+        let f = Float::wrap(-4.1);
+        dbg!(&f);
+        println!("{}", f.to_string());
+        let g = Float::from_bytes(&f.to_bytes()).unwrap();
+        dbg!(&g);
+        println!("{}", g.to_string());
+        assert_eq!(f, g);
     }
 }

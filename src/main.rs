@@ -1,16 +1,18 @@
-use dbms::Database;
+use dbms::{DBError, Database};
 use std::io;
+use std::io::Write;
+use dbms::binary_search_tree::BSTError;
 
 // TODO get rid of unnecessary pub keywords
-// TODO make errors for domain, key, integrity constraints... instead of the only ones I have
-// TODO make this wait till a semicolon is entered to execute a command... implement multi-line commands
-// TODO make a way to store where outputs should be going to and change println! to print to there instead
 fn main() {
     // a mutable reference will get passed around and treated like a singleton
     let mut db = Database::new();
 
     let stdin: io::Stdin = io::stdin();
+    let mut cmd = String::new();
     loop {
+        print!("dbms> ");
+        io::stdout().flush().expect("Failed to write to output.");
         let mut line = String::new();
         match stdin.read_line(&mut line) {
             Ok(_) => (),
@@ -19,12 +21,29 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        for cmd in line.split_terminator(';') {
-            if let Err(err) = dbms::run_cmd(cmd, &mut db) {
-                eprintln!("{}", err);
-                dbms::run_exit(&mut db).expect("FAILED TO SAVE ON EXIT");
+        cmd.push_str(&line);
+        if !cmd.contains(';') {
+            continue;
+        }
+
+        for cmd in cmd.split_terminator(';') {
+            match dbms::run_cmd(cmd.trim_start(), &mut db) {
+                Err(err) => {
+                    eprintln!("\t{}", err);
+                    if err.is::<DBError>() || err.is::<BSTError>() {
+                        continue;
+                    }
+                    
+                    dbms::run_exit(&mut db).expect("FAILED TO SAVE ON EXIT");
+                }
+                Ok(output) => {
+                    for out in output {
+                        println!("{out}");
+                    }
+                }
             }
         }
+        cmd.clear();
     }
 }
 

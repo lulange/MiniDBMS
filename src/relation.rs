@@ -1,9 +1,9 @@
 use std::error::Error;
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek};
 use std::io::{Write, SeekFrom};
 use std::vec;
-use crate::binary_search_tree::BST;
+use crate::binary_search_tree::{BSTError, BST};
 use crate::DBError;
 use super::base::{
     Identifier,
@@ -13,6 +13,7 @@ use super::base::{
     Integer,
     Text,
 };
+use crate::logic::Condition;
 
 // TODO create a function so that MemTables can project certain attributes
 // TODO MemTable to Table
@@ -23,7 +24,7 @@ pub struct Table {
     meta_offset: usize,
     pub bst: Option<BST>,
     record_length: u32,
-    file_path: String,
+    pub file_path: String,
 }
 
 impl Table {
@@ -48,7 +49,7 @@ impl Table {
             record_length += Domain::size_in_bytes(domain);
         }
 
-        let file_path = format!("{dir}/{}.dat", name.name());
+        let file_path = format!("{dir}{}.dat", name.name());
         let mut file = File::create_new(&file_path)?;
 
         // attribute list size
@@ -63,14 +64,36 @@ impl Table {
         file.write_all(&0_usize.to_be_bytes())
             .expect("Should be able to write to file."); // usize default
 
+        let bst = if primary_key {
+            let bst_path = format!("{dir}{}.index", name.name());
+            let bst = BST::new();
+            bst.write_to_file(&bst_path)?; // this way the table will know it has a primary key based on the existence of this file
+            Some(bst)
+        } else {
+            None
+        };
+
         Ok(Table {
             attributes,
             record_count: 0,
             meta_offset,
-            bst: if primary_key { Some(BST::new()) } else { None },
+            bst,
             record_length,
             file_path,
         })
+    }
+
+    pub fn clean_up(self) -> Result<(), Box<dyn Error>> {
+        fs::remove_file(&self.file_path)?;
+        match self.bst {
+            Some(_) => {
+                let mut bst_path = self.file_path.clone();
+                bst_path.replace_range(self.file_path.len()-3.., "index");
+                fs::remove_file(&bst_path)?; // use full match to use the ? op
+            }
+            None => ()
+        }
+        Ok(())
     }
 
     pub fn attributes(&self) -> &Vec<(Identifier, Domain)> {
@@ -141,20 +164,22 @@ impl Table {
         Ok(())
     }
 
-    pub fn print_attributes(&self) {
+    pub fn attributes_to_string_vec(&self) -> Vec<String> {
+        let mut output = Vec::new();
         let mut attri_iter = self.attributes.iter();
         if self.bst.is_some() {
             let (attribute, domain) = attri_iter
                 .next()
                 .expect("Tables should always have at least one attribute.");
-            println!("{}\t{} PRIMARY KEY", attribute.name(), domain.to_string());
+            output.push(format!("{}\t{} PRIMARY KEY", attribute.name(), domain.to_string()));
         }
         for (attribute, domain) in attri_iter {
-            println!("{}\t{}", attribute.name(), domain.to_string());
+            output.push(format!("{}\t{}", attribute.name(), domain.to_string()));
         }
+        output
     }
 
-    fn write_record(&mut self, record: Vec<Data>) -> Result<(), Box<dyn Error>> {
+    pub fn write_record(&mut self, record: Vec<Data>) -> Result<(), Box<dyn Error>> {
         let mut file = OpenOptions::new().append(true).open(&self.file_path)?;
         let mut record_bytes: Vec<u8> = Vec::new();
         for (data, (_, domain)) in record.iter().zip(self.attributes.iter()) {
@@ -277,44 +302,114 @@ impl Table {
         Ok(())
     }
 
-    fn update(&mut self, record_num: usize, new_values: &Vec<(Identifier, Data)>) -> Result<(), Box<dyn Error>> {
-        let mut record = self.read_record(record_num)?;
-        for (i, (identifier, domain)) in self.attributes.iter().enumerate() {
+    fn update_record(&mut self, record_num: usize, new_values: &Vec<(Identifier, Data)>) -> Result<(), Box<dyn Error>> {
+        let prev_record = self.read_record(record_num)?;
+        let mut record = prev_record.clone();
+
+        for (i, (identifier, _)) in self.attributes.iter().enumerate() {
             for (check_id, new_data) in new_values {
-                if check_id == identifier {
+                if check_id.name() == identifier.name() {
                     record[i] = new_data.clone();
                 }
             }
         }
 
-        self.write_record(record)
+        // consider extrating this logic into a separate function since it's used a couple times
+        let mut record_bytes: Vec<u8> = Vec::new();
+        for (data, (_, domain)) in record.iter().zip(self.attributes.iter()) {
+            match (data, domain) {
+                (Data::Integer(int), Domain::Integer) => {
+                    record_bytes.append(&mut int.to_bytes().to_vec())
+                }
+                (Data::Float(float), Domain::Float) => {
+                    record_bytes.append(&mut float.to_bytes().to_vec())
+                }
+                (Data::Text(text), Domain::Text) => {
+                    record_bytes.append(&mut text.to_bytes().to_vec())
+                }
+                _ => {
+                    return Err(Box::new(DBError::ConstraintError(
+                        "Cannot write record with invalid data order.",
+                    )))
+                }
+            }
+        }
+
+        let mut file = OpenOptions::new().write(true).open(&self.file_path)?;
+        file.seek(
+            SeekFrom::Start((self.meta_offset + record_num * self.record_length as usize) as u64)
+        )?;
+
+        if let Some(ref mut bst) = self.bst {
+            if prev_record[0] != record[0] {
+                bst.remove(&prev_record[0]);
+                let key = record[0].clone();
+                match bst.insert(key, record_num) {
+                    Err(BSTError::InsertError) => Err(DBError::ConstraintError("Cannot set a key to the value of another key in the table."))?,
+                    _ => ()
+                }
+            }
+        }
+
+        file.write_all(&record_bytes)?;
+        Ok(())
     }
 
-    pub fn update_all(&mut self, record_nums: Vec<usize>, new_values: Vec<(Identifier, Data)>) -> Result<(), Box<dyn Error>> {
+    pub fn update_all(&mut self, cond: Condition, new_values: Vec<(Identifier, Data)>) -> Result<(), Box<dyn Error>> {
+        // load MemTable
+        let mem_table = MemTable::build(self)?;
+        let record_nums: Vec<usize> = cond.filter_table_coords(&vec![mem_table], 0, &self.bst);
+
+        // check if updating a key more than once - which is illegal
+        if self.bst.is_some() && record_nums.len() > 1 {
+            for (id, _) in new_values.iter() {
+                if id.name() == self.attributes[0].0.name() {
+                    // updating a key more than once
+                    Err(DBError::ConstraintError("Cannot set more than one key value at a time."))?
+                }
+            }
+        }
+
         for record_num in record_nums {
-            self.update(record_num, &new_values)?;
+            self.update_record(record_num, &new_values)?;
         }
         Ok(())
     }
 
-    pub fn delete_all(&mut self, mut record_nums: Vec<usize>) -> Result<(), Box<dyn Error>> {
-        let mut mem_table = MemTable::build(self)?; // has some overhead for reading data that isn't necessary
-        for record_num in record_nums {
-            mem_table.records.swap_remove(record_num);
+    pub fn delete_all(&mut self, cond: Condition) -> Result<(), Box<dyn Error>> {
+        let mut mem_tables = vec![MemTable::build(self)?];
+        let mut record_nums = cond.filter_table_coords(&mem_tables, 0, &self.bst);
+        let mut mem_table = mem_tables.remove(0);
+        record_nums.sort();
+        for record_num in record_nums.into_iter().rev() {
+            mem_table.records.swap_remove(record_num); // must swap remove highest numbers first
         }
 
         match self.bst {
             None => (),
-            Some(ref mut bst) => *bst = BST::build(&mem_table)?
+            Some(ref mut bst) => *bst = BST::new()
         }
 
         let file = OpenOptions::new().write(true).open(&self.file_path)?;
         file.set_len(self.meta_offset as u64)?;
 
+        self.record_count = 0;
+
         for record in mem_table.records {
             self.write_record(record)?;
         }
         self.write_record_count()?;
+
+        match self.bst {
+            None => (),
+            Some(ref mut bst) => {
+                let mut bst_path = self.file_path.clone();
+                bst_path.replace_range(self.file_path.len()-3.., "index");
+                bst.write_to_file(&bst_path)?;
+                *bst = BST::read_from_file(&bst_path)?; // balances the bst... not the best way to do this but it works for the purposes we need
+            }
+        }
+
         Ok(())
     }
 }
@@ -340,58 +435,77 @@ impl MemTable {
         })
     }
 
-    pub fn build_from_records(records: Vec<Vec<Data>>, attributes: Vec<(Identifier, Domain)>) ->  Self {
+    pub fn build_from_records(records: Vec<Vec<Data>>, attributes: Vec<(Identifier, Domain)>) ->  Result<Self, Box<dyn Error>> {
         let attributes_len = attributes.len();
-        MemTable {
+        let mem_table = MemTable {
             records,
             attributes,
             projection: (0..attributes_len).collect() // start with all attributes projected
+        };
+
+        for (i, attri1) in mem_table.attributes.iter().enumerate() {
+            for (j, attri2) in mem_table.attributes.iter().enumerate() {
+                if i != j && attri1.0.name() == attri2.0.name() {
+                    return Err(Box::new(DBError::ConstraintError("Cannot have two attributes with the same Identifier in a table")))
+                }
+            }
         }
+
+        Ok(mem_table)
     }
 
     pub fn project(&mut self, selected_attris: Vec<&str>) -> Result<(), DBError> {
         let mut new_projection = Vec::new();
-        'outer: for attri_num in self.projection.iter() {
-            for selected in selected_attris.iter() {
+        'outer: for selected in selected_attris.iter() {
+            for attri_num in self.projection.iter() {
                 if *selected == self.attributes[*attri_num].0.name() {
                     new_projection.push(*attri_num);
                     continue 'outer;
                 }
-                return Err(DBError::ParseError("Could not find attribute to project in the given table."))
             }
+            return Err(DBError::ParseError("Could not find attribute to project in the given table."))
         }
         self.projection = new_projection;
         Ok(())
     }
 
-    pub fn print(&self) {
-        let mut attribute_lengths = vec![0; self.projection.len()];
+    pub fn to_string_vec(&self) -> Vec<String> {
+        if self.records.len() == 0 {
+            return vec![String::from("\nNothing Found.\n")];
+        }
+
+        let mut output: Vec<String> = Vec::with_capacity(self.records.len()*2 + 3);
+
+        let mut attribute_lengths = vec![0; self.projection.len()+1]; // plus one for row numbers that will be added
         for (i, attri_num) in self.projection.iter().enumerate() {
             let (identifier, _) = &self.attributes[*attri_num];
-            attribute_lengths[i] = identifier.name().len() + 4; // two spaces and two pipe characters
+            attribute_lengths[i] = identifier.name().len(); // two spaces and two pipe characters
         }
 
         for record in self.records.iter() {
             for (i, attri_num) in self.projection.iter().enumerate() {
                 let data = &record[*attri_num];
-                let data_len = data.string_len() + 4; // two spaces and two pipe characters
+                let data_len = data.string_len(); // two spaces and two pipe characters
                 if data_len > attribute_lengths[i] {
                     attribute_lengths[i] = data_len;
                 }
             }
         }
 
+        let row_num_string_length = (self.records.len() + 1).to_string().len();
+
         // loop through all instances of each attribute and check lengths... set each to the longest needed
 
-        let row_length: usize = attribute_lengths.iter().sum();
+        let row_length: usize = attribute_lengths.iter().sum::<usize>() + attribute_lengths.len() * 3 + 1 + row_num_string_length;
 
         // println stuff
 
-        let row_hyphens = vec!["-"; row_length+4].concat();
-        println!("{row_hyphens}");
+        let row_hyphens = vec!["-"; row_length].concat();
+        output.push(format!("{row_hyphens}"));
 
         let mut top_line = Vec::with_capacity(self.attributes.len()*3+1);
-        top_line.push("| ".to_string());
+        let extra_spaces = vec![" "; row_num_string_length].concat();
+        top_line.push(format!("| {extra_spaces} | "));
         for (i, attri_num) in self.projection.iter().enumerate() {
             let (identifier, _) = &self.attributes[*attri_num];
             let extra_spaces = vec![" "; attribute_lengths[i]-identifier.name().len()].concat();
@@ -399,15 +513,17 @@ impl MemTable {
             top_line.push(id_string);
             top_line.push(" | ".to_string());
         }
-        top_line.push("\n".to_string());
-        println!("{}", top_line.concat());
+        output.push(format!("{}", top_line.concat()));
 
-        println!("{row_hyphens}");
+        output.push(format!("{row_hyphens}"));
 
         // print each record
-        for record in self.records.iter() {
+        for (i, record) in self.records.iter().enumerate() {
             let mut new_line = Vec::with_capacity(self.attributes.len()*3+1);
-            new_line.push("| ".to_string());
+            let num_string = (i+1).to_string();
+            let extra_spaces = vec![" "; row_num_string_length-num_string.len()].concat();
+            let num_string = [num_string, extra_spaces].concat();
+            new_line.push(format!("| {num_string} | "));
             for (i, attri_num) in self.projection.iter().enumerate() {
                 let data = &record[*attri_num];
                 let data_string = data.to_string(); // two spaces and two pipe characters
@@ -416,10 +532,62 @@ impl MemTable {
                 new_line.push(data_string);
                 new_line.push(" | ".to_string());
             }
-            new_line.push("\n".to_string());
-            println!("{}", new_line.concat());
+            output.push(format!("{}", new_line.concat()));
         }
 
-        println!("{row_hyphens}");
+        output.push(format!("{row_hyphens}\n"));
+
+        output
+    }
+
+    pub fn get_projected_attribute_list(&self) -> Vec<&(Identifier, Domain)> {
+        let mut project_attris = Vec::with_capacity(self.projection.len());
+
+        for projection in self.projection.iter() {
+            project_attris.push(&self.attributes[*projection]);
+        }
+
+        project_attris
+    }
+
+    pub fn set_key(&mut self, key_attri: &str) -> Result<(), Box<dyn Error>> {
+        let mut found_key = false;
+        let mut key_num = 0;
+        for (i, (id,  _)) in self.get_projected_attribute_list().iter().enumerate() {
+            if id.name() == key_attri {
+                key_num = i;
+                found_key = true;
+                break;
+            }
+        }
+
+        if !found_key {
+            Err(DBError::ParseError("Could not find an attribute with the given name for KEY."))?
+        }
+
+        let mut key_checker = BST::new();
+
+        for record in self.records.iter_mut() {
+            if key_checker.insert(record[key_num].clone(), 0).is_err() {
+                Err(DBError::ParseError("Invalid key given. Multiple records have the same values"))?
+            }
+        }
+
+        for record in self.records.iter_mut() {
+            record.swap(0, key_num);
+        }
+
+        self.attributes.swap(0, key_num);
+
+        Ok(())
+    }
+
+    pub fn get_projected_record(&self, rec_num: usize) -> Vec<Data> {
+        let mut projected_record = Vec::with_capacity(self.projection.len());
+        for projection in self.projection.iter() {
+            projected_record.push(self.records[rec_num][*projection].clone());
+        } 
+
+        projected_record
     }
 }

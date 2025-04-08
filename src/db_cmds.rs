@@ -1,5 +1,5 @@
-use crate::{logic::Condition, DBError, Database};
-use std::error::Error;
+use crate::{binary_search_tree::BST, logic::Condition, DBError, Database};
+use std::{error::Error, fs::{File, OpenOptions}, io::{Read, Write}, vec};
 use crate::base::{
     Identifier,
     Data,
@@ -8,15 +8,13 @@ use crate::base::{
     Float,
     Text
 };
+use crate::relation::Table;
 
-// helpers contains functions the run_* functions call to get their job done quicker. No real organization to them currently
 mod helpers;
 
 use helpers::*;
 
-// TODO remove mut references to db that are not necessary
-
-pub fn run_cmd(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
+pub fn run_cmd(cmd: &str, db: &mut Database) -> Result<Vec<String>, Box<dyn Error>> {
     let cmd = cmd.to_lowercase();
     let (directive, cmd) = match cmd.split_once(' ') {
         Some((directive, cmd)) => (directive, cmd),
@@ -24,23 +22,48 @@ pub fn run_cmd(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     };
 
     match directive.trim() {
-        "create" => run_create(cmd, db),
-        "use" => run_use(cmd, db),
+        "create" => {
+            run_create(cmd, db)?;
+            Ok(vec![])
+        }
+        "use" => {
+            run_use(cmd, db)?;
+            Ok(vec![])
+        }
         "describe" => run_describe(cmd, db),
         "select" => run_select(cmd, db),
-        //"let" => run_let(cmd, db),
-        "insert" => run_insert(cmd, db),
-        //"update" => run_update(cmd, db),
-        //"delete" => run_delete(cmd, db),
-        //"input" => run_input(cmd, db),
-        "rename" => run_rename(cmd, db),
+        "let" => {
+            run_let(cmd, db)?;
+            Ok(vec![])
+        }
+        "insert" => {
+            run_insert(cmd, db)?;
+            Ok(vec![])
+        }
+        "update" => {
+            run_update(cmd, db)?;
+            Ok(vec![])
+        }
+        "delete" => {
+            run_delete(cmd, db)?;
+            Ok(vec![])
+        }
+        "input" => {
+            run_input(cmd, db)?;
+            Ok(vec![])
+        },
+        "rename" => {
+            run_rename(cmd, db)?;
+            Ok(vec![])
+        }
         "exit" => {
             if !cmd.trim().is_empty() {
                 eprintln!("\tEXIT command does not take arguments.");
             }
-            run_exit(db)
+            run_exit(db)?;
+            Ok(vec![])
         }
-        "" => return Ok(()), // TODO work on removing this line
+        "" => return Ok(vec![]),
         _ => {
             return Err(Box::new(DBError::ParseError(
                 "Failed to read command directive.",
@@ -49,47 +72,10 @@ pub fn run_cmd(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn run_select(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
-    let (attri_name_list, cmd) = match cmd.split_once("from") {
-        Some(tuple) => tuple,
-        None => {
-            return Err(Box::new(DBError::ParseError(
-                "SELECT command requires FROM clause.",
-            )))
-        }
-    };
-
-    let (table_name_list, condition) = match cmd.split_once("where") {
-        Some((table_name_list, condition)) => (table_name_list, condition.trim()),
-        None => (cmd, "") // "" here since no condition is always true
-    };
-
-
-    let select_attributes: Vec<&str> = attri_name_list
-        .split(",")
-        .map(|attri| -> &str { attri.trim() })
-        .collect();
-
-    let table_name_list: Vec<&str> = table_name_list
-        .split(",")
-        .map(|table| -> &str { table.trim() })
-        .collect();
-
-    let mut tables = Vec::with_capacity(table_name_list.len());
-    for table_name in table_name_list {
-        db.table_map.get(table_name).inspect(|table| {
-            tables.push(*table);
-        });
-    }
-
-    let cond = Condition::parse(condition)?;
-
-    let mut select_table = cond.select(tables)?;
-
-    select_table.project(select_attributes)?;
-    select_table.print();
-
-    Ok(())
+fn run_select(cmd: &str, db: &mut Database) -> Result<Vec<String>, Box<dyn Error>> {
+    let return_vec = select_from_tables(cmd, db)?.to_string_vec();
+    eprintln!("\tSELECT Success!");
+    Ok(return_vec)
 }
 
 fn run_rename(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
@@ -121,34 +107,153 @@ fn run_rename(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
         )));
     }
     table.rename_attributes(new_attributes)?;
+    eprintln!("\tRENAME Success!");
     Ok(())
 }
 
-// fn run_let(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
-//     // TODO create let command
-//     todo!();
-// }
+fn run_let(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
+    if db.path == "" {
+        return Err(Box::new(DBError::ParseError(
+            "Database path not set. Run the USE command before table creation.",
+        )));
+    }
 
-// fn run_update(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
-//     // TODO create the UPDATE command
-//     todo!();
-//     Ok(())
-// }
+    let (new_table_name, cmd) = match cmd.split_once("key") {
+        Some((new_table_name, cmd)) => (new_table_name.trim(), cmd.trim()),
+        None => {
+            return Err(Box::new(DBError::ParseError(
+                "LET command requires KEY clause.",
+            )))
+        }
+    };
 
-// fn run_delete(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
-//     // TODO create delete command
-//     Ok(())
-// }
+    if db.table_map.get(new_table_name).is_some() {
+        return Err(Box::new(DBError::ParseError(
+            "Table with name given already exists.",
+        )))
+    }
 
-// fn run_input(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
-//     // TODO create input command
-//     Ok(())
-// }
+    let (key_attri, cmd) = match cmd.split_once("select") {
+        Some((key_attri, cmd)) => (key_attri.trim(), cmd.trim()), // TODO trim these
+        None => {
+            return Err(Box::new(DBError::ParseError(
+                "LET command requires SELECT clause.",
+            )))
+        }
+    };
+
+    let mut selected_table = select_from_tables(cmd, db)?;
+
+    // swap attributes so that key is in front and check uniqueness
+    selected_table.set_key(key_attri)?;
+
+    let attribute_list = selected_table
+        .get_projected_attribute_list()
+        .into_iter()
+        .map(|tuple|  {tuple.clone()})
+        .collect();
+
+    let mut table = Table::build(new_table_name, attribute_list, true, &db.path)?;
+
+    // write projected records to new table
+    for rec_num in 0..selected_table.records.len() {
+        table.write_record(selected_table.get_projected_record(rec_num))?;
+    }
+
+    table.write_record_count()?;
+
+    // balance the bst plus write it to file
+    let mut bst_path = table.file_path.clone();
+    bst_path.replace_range(table.file_path.len()-3.., "index");
+    table.bst.unwrap().write_to_file(&bst_path)?;
+    table.bst = Some(BST::read_from_file(&bst_path)?);
+
+    // setup table struct to use its builtin formatting
+    db.table_map.insert(
+        new_table_name.to_string(),
+        table,
+    );
+
+    eprintln!("\tLET Success!");
+    Ok(())
+}
+
+fn run_update(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
+    let (table_name, cmd) = match cmd.split_once("set") {
+        Some((table_name, cmd)) => (table_name.trim(), cmd.trim()),
+        None => return Err(DBError::ParseError("UPDATE directive requires SET clause."))?
+    };
+
+    let (new_values, condition) = match cmd.split_once("where") {
+        Some((new_values, condition)) => (new_values.trim(), condition.trim()),
+        None => (cmd, "")
+    };
+
+    let table = match db.table_map.get_mut(table_name) {
+        Some(table) => table,
+        None => return Err(DBError::ParseError("Could not find a table with that name to update."))?
+    };
+    
+    let cond = Condition::parse(condition)?;
+    let new_values = parse_new_attr_values(&table, new_values)?;
+    cond.update(table, new_values)?;
+    eprintln!("\tUPDATE Success!");
+    Ok(())
+}
+
+fn run_delete(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
+    match cmd.split_once("where") {
+        Some((table_name, condition)) => delete_tuples(db, table_name.trim(), condition.trim())?,
+        None => delete_table(db, cmd.trim())?
+    }
+    eprintln!("\tDELETE Success!");
+    Ok(())
+}
+
+fn run_input(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
+    let (file_name, output_name) = match cmd.split_once("output") {
+        Some((file_name, output_name)) => (file_name.trim(), output_name.trim()),
+        None => (cmd.trim(), "")
+    };
+
+    let mut input = match File::open(file_name) {
+        Ok(file) => file,
+        Err(_) => Err(DBError::ParseError("Could not find/read the given file for INPUT directive."))?
+    };
+
+    let mut output_file = if output_name.is_empty() {
+        None
+    } else {
+        match OpenOptions::new().write(true).truncate(true).open(output_name) {
+            Ok(file) => Some(file),
+            Err(_) => Some(OpenOptions::new().create(true).write(true).open(output_name)?)
+        }
+    };
+
+    let mut input_string = String::new();
+    input.read_to_string(&mut input_string)?;
+
+    for cmd in input_string.split_terminator(';') {
+        let output = run_cmd(cmd.trim_start(), db)?;
+        if let Some(ref mut file) = output_file {
+            let to_file = output.iter().map(|out| {
+                [out.as_bytes(),&[b'\n']].concat()
+            }).collect::<Vec<Vec<u8>>>().concat();
+            file.write_all(&to_file)?;
+        } else {
+            for out in output {
+                println!("{out}");
+            }
+        }
+    }
+    eprintln!("\tINPUT Success!");
+    Ok(())
+}
 
 fn run_use(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     let db_name = Identifier::from(cmd.trim())?; // Once this succeeds we know the database name could be valid
     *db = Database::build("./".to_owned() + db_name.name() + "/")?;
-    eprintln!("\tSuccess!");
+    eprintln!("\tUSE Success!");
     Ok(())
 }
 
@@ -195,11 +300,14 @@ fn run_insert(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     for value in values.into_iter() {
         record.push(value?);
     }
-    table.write_single_record(record)
+    table.write_single_record(record)?;
+    eprintln!("\tINSERT Success!");
+    Ok(())
 }
 
-pub fn run_exit(db: &mut Database) -> Result<(), Box<dyn Error>> {
-    eprintln!("\tSaving indices and table sizes");
+pub fn run_exit(db: &Database) -> Result<(), Box<dyn Error>> {
+    eprintln!("\tSaving Database state");
+    // TODO maybe move this logic into a function in Table since it belongs there
     for (table_name, table) in db.table_map.iter() {
         table.write_record_count()?;
         if let Some(ref bst) = table.bst {
@@ -211,13 +319,15 @@ pub fn run_exit(db: &mut Database) -> Result<(), Box<dyn Error>> {
     std::process::exit(0);
 }
 
-fn run_describe(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
+fn run_describe(cmd: &str, db: &Database) -> Result<Vec<String>, Box<dyn Error>> {
     let table_name = cmd.trim();
     if table_name.is_empty() {
         return Err(Box::new(DBError::ParseError(
             "DESCRIBE requires at least one argument.",
         )));
     }
+
+    let mut output = Vec::new();
     if table_name != "all" {
         let table = match db.table_map.get(table_name) {
             Some(table) => table,
@@ -227,15 +337,17 @@ fn run_describe(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
                 )))
             }
         };
-        println!("{table_name}");
-        table.print_attributes();
-        return Ok(());
+        output.push(format!("{table_name}"));
+        output.append(&mut table.attributes_to_string_vec());
+        return Ok(output);
     }
     for (table_name, table) in db.table_map.iter() {
-        println!("{table_name}");
-        table.print_attributes();
+        output.push(format!("{table_name}"));
+        output.append(&mut table.attributes_to_string_vec());
     }
-    Ok(())
+
+    eprintln!("\tDESCRIBE Success!");
+    Ok(output)
 }
 
 fn run_create(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
@@ -249,12 +361,15 @@ fn run_create(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     };
 
     if cmd_0 == "database" {
-        create_database(cmd, db)
+        create_database(cmd)?;
     } else if cmd_0 == "table" {
-        create_table(cmd, db)
+        create_table(cmd, db)?;
     } else {
         Err(Box::new(DBError::ParseError(
             "Syntax error after directive CREATE.",
-        )))
+        )))?
     }
+
+    eprintln!("\tCREATE Success!");
+    Ok(())
 }

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::io::Write;
 use std::vec;
 use super::base::{Float, Integer, Text, Identifier, Data, Domain};
 use super::relation::{Table, MemTable};
@@ -19,7 +18,7 @@ enum BoolEval {
 }
 
 #[derive(Debug)]
-enum Operand {
+pub enum Operand {
     Identifier(Identifier), // an identifier which has not been converted to an Attribute yet
     Attribute((usize, usize)), // coordinates in the joined_record (table, attri_num)
     Value(Data) // int, float, text (with certain extra restrictions from parsing)
@@ -48,13 +47,13 @@ impl Operand {
 }
 
 pub struct Constraint {
-    left_op: Operand,
-    rel_op: RelOp,
-    right_op: Operand,
+    pub left_op: Operand,
+    pub rel_op: RelOp,
+    pub right_op: Operand,
 }
 
 impl Constraint {
-    fn parse_split(prop: &str) -> Result<(Self, &str), Box<dyn Error>> {
+    pub fn parse_split(prop: &str) -> Result<(Self, &str), Box<dyn Error>> {
         let prop = prop.trim();
 
         let (left_op, prop) = split_word(prop);
@@ -96,7 +95,7 @@ impl Constraint {
 
     // will take a list of tables and fill in the appropriate coordinates for each operand identifier found
     // usize identifies which tables this constraint points to
-    fn convert_with(&mut self, tables: &Vec<&Table>) -> Result<(), Box<dyn Error>> {
+    pub fn convert_with(&mut self, tables: &Vec<&Table>) -> Result<(), Box<dyn Error>> {
         'outer: { if let Operand::Identifier(id) = &self.left_op {
             for (i, table) in tables.iter().enumerate() {
                 for (j, (attribute, _)) in table.attributes().iter().enumerate() {
@@ -111,7 +110,7 @@ impl Constraint {
 
         'outer: { if let Operand::Identifier(id) = &self.right_op {
             for (i, table) in tables.iter().enumerate() {
-                for (j, (attribute, Domain)) in table.attributes().iter().enumerate() {
+                for (j, (attribute, _)) in table.attributes().iter().enumerate() {
                     if attribute.name() == id.name() {
                         self.right_op = Operand::Attribute((i, j));
                         break 'outer;
@@ -146,7 +145,7 @@ impl Constraint {
 
     fn refs_single_table(&self) -> Option<usize> {
         match (&self.left_op, &self.right_op) {
-            (Operand::Attribute((i1,j1)), Operand::Attribute((i2, j2))) => if i1 == i2 {Some(*i1)} else {None},
+            (Operand::Attribute((i1, _)), Operand::Attribute((i2, _))) => if i1 == i2 {Some(*i1)} else {None},
             (Operand::Attribute((i, _)), _) => Some(*i),
             (_, Operand::Attribute((i, _))) => Some(*i),
             _=> panic!("Should never call refs_single_table method before converting constraint.")
@@ -178,9 +177,12 @@ pub struct Condition {
 
 
 impl Condition {
-    pub fn parse(cond: &str) -> Result<Self, Box<dyn Error>> {
-        let mut cond = cond;
+    pub fn parse(mut cond: &str) -> Result<Self, Box<dyn Error>> {
         let mut bool_evals: Vec<(LogOp, BoolEval)> = Vec::new();
+        
+        if cond.is_empty() {
+            return Ok(Condition {bool_evals});
+        }
 
         let mut last_log_op = LogOp::And;
 
@@ -337,7 +339,7 @@ impl Condition {
         }
     }
 
-    fn filter_table_coords(mut self, mem_tables: &Vec<MemTable>, table_num: usize, bst: &Option<BST>) -> Vec<usize> {
+    pub fn filter_table_coords(mut self, mem_tables: &Vec<MemTable>, table_num: usize, bst: &Option<BST>) -> Vec<usize> {
         let mut selected: Vec<usize> = Vec::with_capacity(mem_tables[table_num].records.len());
 
         let records_coords: Vec<usize> = match bst {
@@ -416,6 +418,9 @@ impl Condition {
     }
 
     pub fn select(mut self, tables: Vec<&Table>) -> Result<MemTable, Box<dyn Error>> {
+        if tables.len() == 0 {
+            Err(DBError::ConstraintError("Must select from a table."))?
+        }
         // Replace all attributes in bool_evals list with table coordinates
         self.convert_with(&tables)?;
 
@@ -436,16 +441,16 @@ impl Condition {
 
         // Filter memtables by single_table/always_trues condition (get coords for each table that match)
         let mut record_nums_vec = Vec::new();
-        for (i, table) in mem_tables.iter().enumerate() {
+        for (i, _) in mem_tables.iter().enumerate() {
             record_nums_vec.push( match helpers.remove(&i) {
                 Some(helper) => helper.filter_table_coords(&mem_tables, i, &tables[i].bst),
-                None => (0..table.records.len()).collect()
+                None => Condition::parse("")?.filter_table_coords(&mem_tables, i, &tables[i].bst)
             });
         }
 
         for record_nums in record_nums_vec.iter() {
             if record_nums.len() == 0 {
-                return Ok(MemTable::build_from_records(vec![], new_attributes))
+                return Ok(MemTable::build_from_records(vec![], new_attributes)?)
             }
         }
 
@@ -492,38 +497,21 @@ impl Condition {
             records.push(new_rec);
         }
 
-        Ok(MemTable::build_from_records(records, new_attributes)) // TODO make a method on mem_tables that works for this type of thing
+        Ok(MemTable::build_from_records(records, new_attributes)?)
     }
 
     pub fn update(mut self, table: &mut Table, new_values: Vec<(Identifier, Data)>) -> Result<(), Box<dyn Error>> {
-        // replace attributes in bool_eval with table coordinates
         self.convert_with(&vec![table])?;
-
-        // load MemTable
-        let mem_table = MemTable::build(table)?;
-
-        // Filter using self as the condition
-        let filtered = self.filter_table_coords(&vec![mem_table], 0, &table.bst);
-
-        // for each record in filtered coordinates update the record in table which has that record_num
-        table.update_all(filtered, new_values)
+        table.update_all(self, new_values)
     }
 
     pub fn delete (mut self, table: &mut Table) -> Result<(), Box<dyn Error>> {
-        // replace attributes in bool_eval with table coordinates
         self.convert_with(&vec![table])?;
-
-        // load MemTable
-        let mem_table = MemTable::build(table)?;
-
-        // Filter using self as the condition
-        let filtered = self.filter_table_coords(&vec![mem_table], 0, &table.bst);
-
-        // for each record in filtered coordinates update the record in table which has that record_num
-        table.delete_all(filtered)
+        table.delete_all(self)
     }
 }
 
+#[derive(PartialEq)]
 pub enum RelOp {
     Equals,
     NotEqual,
@@ -602,7 +590,7 @@ fn split_parenthesis_chunk(cond: &str) -> Result<(&str, &str), ()> {
 mod tests {
     use crate::db_cmds;
     use crate::Database;
-    use std::fs::File;
+    //use std::fs::File;
     use super::*;
 
     // also can use #[should_panic] after #[test]

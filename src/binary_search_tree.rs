@@ -6,7 +6,7 @@ use std::{
     error::Error,
     fmt::Display,
     fs,
-    io::{Read, Write, self},
+    io::{Read, Write},
 };
 use crate::{base::Data, relation::MemTable};
 
@@ -63,6 +63,10 @@ impl BST {
     }
 
     pub fn build(mem_table: &MemTable) -> Result<Self, BSTError> {
+        for record in mem_table.records.iter() {
+            dbg!(&record[0]);
+        }
+        
         let mut bst = BST::new();
         for (i, record) in mem_table.records.iter().enumerate() {
             bst.insert(record[0].clone(), i)?;
@@ -243,7 +247,7 @@ impl BST {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    //use super::*;
 
     // also can use #[should_panic] after #[test]
     // #[should_panic(expected = "less than or equal to 100")]

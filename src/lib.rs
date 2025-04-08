@@ -7,7 +7,7 @@ use std::fs;
 pub use db_cmds::run_cmd;
 pub use db_cmds::run_exit;
 
-mod binary_search_tree;
+pub mod binary_search_tree;
 mod db_cmds;
 mod relation;
 mod logic;
@@ -37,8 +37,6 @@ impl Database {
                 )))
             }
         };
-
-        eprintln!("\tReading tables in database directory...");
 
         for file in db_files {
             let file = file?;
