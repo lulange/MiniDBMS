@@ -7,24 +7,16 @@ use std::{
 };
 use crate::{base::Data, relation::MemTable};
 
-// TODO streamline this to be the only error with a unit struct
 #[derive(Debug)]
-pub enum BSTError {
-    InsertError,
-}
+pub struct BSTInsertErr;
 
-impl Display for BSTError {
+impl Display for BSTInsertErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            BSTError::InsertError => write!(
-                f,
-                "Failed to insert into binary search tree. Key value already exists."
-            ),
-        }
+        write!(f, "Failed to insert into binary search tree. Key value already exists.")
     }
 }
 
-impl Error for BSTError {}
+impl Error for BSTInsertErr {}
 
 type Child = Option<Box<Node>>;
 
@@ -57,7 +49,7 @@ impl BST {
         BST { root: None }
     }
 
-    pub fn build(mem_table: &MemTable) -> Result<Self, BSTError> {
+    pub fn build(mem_table: &MemTable) -> Result<Self, BSTInsertErr> {
         for record in mem_table.records.iter() {
             dbg!(&record[0]);
         }
@@ -131,16 +123,16 @@ impl BST {
         Ok(())
     }
 
-    pub fn insert(&mut self, key: Data, data: usize) -> Result<(), BSTError> {
+    pub fn insert(&mut self, key: Data, data: usize) -> Result<(), BSTInsertErr> {
         if key.as_bytes().len() > std::u8::MAX as usize {
-            return Err(BSTError::InsertError); // bytes stored must be < u8 so that u8 can be used to store length of key in file
+            return Err(BSTInsertErr); // bytes stored must be < u8 so that u8 can be used to store length of key in file
         }
     
         let mut curr_node = &mut self.root;
 
         while let Some(node) = curr_node {
             match key.cmp(&node.key) {
-                Ordering::Equal => return Err(BSTError::InsertError),
+                Ordering::Equal => return Err(BSTInsertErr),
                 Ordering::Less => curr_node = &mut node.left,
                 Ordering::Greater => curr_node = &mut node.right,
             }

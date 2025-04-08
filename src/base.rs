@@ -10,9 +10,9 @@ pub struct Identifier {
     name: String,
 }
 
-// TODO disallow identifiers from being commands
 impl Identifier {
     pub fn from(name: &str) -> Result<Self, Box<dyn Error>> {
+        let name = &name.to_lowercase()[..]; // should already be lowercase but just in case
         if name.len() > 19 {
             return Err(Box::new(DBError::ParseError(
                 "Identifer name cannot be longer than 19 characters",
@@ -31,9 +31,31 @@ impl Identifier {
             }
         }
 
-        Ok(Identifier {
-            name: String::from(name),
-        })
+        match name {
+            "create"|
+            "database"|
+            "select"|
+            "use"|
+            "describe"|
+            "let"|
+            "insert"|
+            "update"|
+            "delete"|
+            "input"|
+            "exit"|
+            "rename"|
+            "table"|
+            "primary"|
+            "key"|
+            "where"|
+            "from"|
+            "all"|
+            "values"|
+            "set"|
+            "output"
+             => Err(DBError::ParseError("Cannot set an Identifier to a command name or reserved keyword"))?,
+            _ => Ok(Identifier { name: String::from(name) })
+        }
     }
 
     pub fn name(&self) -> &str {
@@ -122,6 +144,10 @@ impl Integer {
         self.value.to_be_bytes()
     }
 
+    pub fn byte_len() -> usize {
+        4
+    }
+
     pub fn from(value: &str) -> Result<Self, Box<dyn Error>> {
         let value = value.parse()?;
 
@@ -169,6 +195,10 @@ impl Float {
         let mut float = float.parse::<f64>()?;
         float = (float*100.).round() / 100.; // remove extra precision
         Ok(Float{ float })
+    }
+
+    pub fn byte_len() -> usize {
+        5
     }
 
     pub fn value(&self) -> &f64 {

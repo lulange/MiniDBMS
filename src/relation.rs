@@ -3,7 +3,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek};
 use std::io::{Write, SeekFrom};
 use std::vec;
-use crate::binary_search_tree::{BSTError, BST};
+use crate::binary_search_tree::{BSTInsertErr, BST};
 use crate::DBError;
 use super::base::{
     Identifier,
@@ -205,8 +205,6 @@ impl Table {
         self.record_count += 1;
 
         file.write_all(&record_bytes)?;
-        // TODO maybe remove from bst if this fails and then return error
-        // or on table loading make sure bst is the same size as table or something and recreate if unsynced
         Ok(())
     }
 
@@ -233,11 +231,11 @@ impl Table {
         for (_, domain) in self.attributes.iter() {
             let data = match domain {
                 Domain::Float => {
-                    offset += 5; // TODO hardcode this value in as Float::byte_len() and the same for int and text
+                    offset += Float::byte_len();
                     Data::Float(Float::from_bytes(&record_bytes[offset - 5..offset])?)
                 }
                 Domain::Integer => {
-                    offset += 4;
+                    offset += Integer::byte_len();
                     Data::Integer(Integer::from_bytes(&record_bytes[offset - 4..offset])?)
                 }
                 Domain::Text => {
@@ -248,6 +246,16 @@ impl Table {
             record.push(data)
         }
         Ok(record)
+    }
+
+    pub fn write_bst(&self) -> Result<(), Box<dyn Error>> {
+        if let Some(ref bst) = self.bst {
+            let mut bst_path = self.file_path.clone();
+            bst_path.replace_range(self.file_path.len()-3.., "index");
+            bst.write_to_file(&bst_path)
+        } else {
+            Ok(())
+        }
     }
 
     fn read_all_data(&self) -> Result<Vec<Vec<Data>>, Box<dyn Error>> {
@@ -262,15 +270,15 @@ impl Table {
             for (_, domain) in self.attributes.iter() {
                 let data = match domain {
                     Domain::Float => {
-                        offset += 5; // TODO hardcode this value in as Float::byte_len() and the same for int and text
+                        offset += Float::byte_len();
                         Data::Float(Float::from_bytes(&records_bytes[offset - 5..offset])?)
                     }
                     Domain::Integer => {
-                        offset += 4;
+                        offset += Integer::byte_len();
                         Data::Integer(Integer::from_bytes(&records_bytes[offset - 4..offset])?)
                     }
                     Domain::Text => {
-                        offset += 100;
+                        offset += 100; // the max text byte length and the length we always store it as for tables
                         Data::Text(Text::from_bytes(&records_bytes[offset - 100..offset])?)
                     }
                 };
@@ -344,7 +352,7 @@ impl Table {
                 bst.remove(&prev_record[0]);
                 let key = record[0].clone();
                 match bst.insert(key, record_num) {
-                    Err(BSTError::InsertError) => Err(DBError::ConstraintError("Cannot set a key to the value of another key in the table."))?,
+                    Err(BSTInsertErr) => Err(DBError::ConstraintError("Cannot set a key to the value of another key in the table."))?,
                     _ => ()
                 }
             }

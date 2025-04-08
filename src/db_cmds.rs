@@ -307,13 +307,9 @@ fn run_insert(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
 
 pub fn run_exit(db: &Database) -> Result<(), Box<dyn Error>> {
     eprintln!("\tSaving Database state");
-    // TODO maybe move this logic into a function in Table since it belongs there
-    for (table_name, table) in db.table_map.iter() {
+    for (_, table) in db.table_map.iter() {
         table.write_record_count()?;
-        if let Some(ref bst) = table.bst {
-            let bst_path = format!("{}{}.index", db.path, table_name);
-            bst.write_to_file(&bst_path)?;
-        }
+        table.write_bst()?;
     }
     eprintln!("\tPROGRAM END");
     std::process::exit(0);

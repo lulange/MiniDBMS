@@ -1,9 +1,8 @@
 use dbms::{DBError, Database};
 use std::io;
 use std::io::Write;
-use dbms::binary_search_tree::BSTError;
+use dbms::binary_search_tree::BSTInsertErr;
 
-// TODO get rid of unnecessary pub keywords
 fn main() {
     // a mutable reference will get passed around and treated like a singleton
     let mut db = Database::new();
@@ -30,7 +29,7 @@ fn main() {
             match dbms::run_cmd(cmd.trim_start(), &mut db) {
                 Err(err) => {
                     eprintln!("\t{}", err);
-                    if err.is::<DBError>() || err.is::<BSTError>() {
+                    if err.is::<DBError>() || err.is::<BSTInsertErr>() {
                         continue;
                     }
                     
@@ -52,8 +51,7 @@ fn main() {
 
 // BIG TODOS
 /*
-1. Complete base todos written throughout the code so that the program is complete in theory
-3. Comment all functions, modules, structs, etc to some specific format
+3. Comment all functions, modules, structs, etc to some specific format // get rid of unnecessary pub keywords
 4. Create tests to ensure all logic works correctly / maybe split some functions for testing
 5. Last pass, check over everything line by line and do real-world testing
 6. Come up with some cool name for it and run it by the professor and ask for feedback
