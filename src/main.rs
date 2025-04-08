@@ -50,16 +50,6 @@ fn main() {
 
 
 
-
-
-
-
-
-
-
-
-
-
 // BIG TODOS
 /*
 1. Complete base todos written throughout the code so that the program is complete in theory
