@@ -1,6 +1,3 @@
-// TODO abstract this into a separate crate and create a cargo workspace with both of these crates??
-// OR TODO place this under db_types somehow... maybe in relation.rs
-
 use std::{
     cmp::Ordering,
     error::Error,
@@ -10,7 +7,7 @@ use std::{
 };
 use crate::{base::Data, relation::MemTable};
 
-// TODO either streamline this to be the only error or add another error type
+// TODO streamline this to be the only error with a unit struct
 #[derive(Debug)]
 pub enum BSTError {
     InsertError,
@@ -30,8 +27,6 @@ impl Display for BSTError {
 impl Error for BSTError {}
 
 type Child = Option<Box<Node>>;
-
-// TODO make a way that the BST can create itself from a table file if issues with syncing happen or in the case of certain commands
 
 #[derive(Debug)]
 struct Node {

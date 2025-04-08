@@ -15,8 +15,6 @@ use super::base::{
 };
 use crate::logic::Condition;
 
-// TODO create a function so that MemTables can project certain attributes
-// TODO MemTable to Table
 
 pub struct Table {
     attributes: Vec<(Identifier, Domain)>,
@@ -208,6 +206,7 @@ impl Table {
 
         file.write_all(&record_bytes)?;
         // TODO maybe remove from bst if this fails and then return error
+        // or on table loading make sure bst is the same size as table or something and recreate if unsynced
         Ok(())
     }
 
@@ -234,7 +233,7 @@ impl Table {
         for (_, domain) in self.attributes.iter() {
             let data = match domain {
                 Domain::Float => {
-                    offset += 5; // TODO maybe hardcode this value in as Float::byte_len() and the same for int and text
+                    offset += 5; // TODO hardcode this value in as Float::byte_len() and the same for int and text
                     Data::Float(Float::from_bytes(&record_bytes[offset - 5..offset])?)
                 }
                 Domain::Integer => {
@@ -263,7 +262,7 @@ impl Table {
             for (_, domain) in self.attributes.iter() {
                 let data = match domain {
                     Domain::Float => {
-                        offset += 5; // TODO maybe hardcode this value in as Float::byte_len() and the same for int and text
+                        offset += 5; // TODO hardcode this value in as Float::byte_len() and the same for int and text
                         Data::Float(Float::from_bytes(&records_bytes[offset - 5..offset])?)
                     }
                     Domain::Integer => {

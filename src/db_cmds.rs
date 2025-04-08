@@ -134,7 +134,7 @@ fn run_let(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     }
 
     let (key_attri, cmd) = match cmd.split_once("select") {
-        Some((key_attri, cmd)) => (key_attri.trim(), cmd.trim()), // TODO trim these
+        Some((key_attri, cmd)) => (key_attri.trim(), cmd.trim()),
         None => {
             return Err(Box::new(DBError::ParseError(
                 "LET command requires SELECT clause.",

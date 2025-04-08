@@ -1,6 +1,6 @@
 use core::panic;
 use std::cmp::Ordering;
-use std::error::Error; // TODO remove this if possible
+use std::error::Error;
 use std::fs::File;
 use std::io::Write;
 use crate::DBError;
@@ -10,7 +10,6 @@ pub struct Identifier {
     name: String,
 }
 
-// TODO delete unused functions that just give permissions out
 // TODO disallow identifiers from being commands
 impl Identifier {
     pub fn from(name: &str) -> Result<Self, Box<dyn Error>> {

@@ -1,16 +1,22 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    path,
+    fs
+};
 use std::error::Error;
-use crate::logic::Constraint;
-use crate::logic::RelOp;
-use crate::relation::MemTable;
-use crate::DBError;
-use crate::Database;
-use std::path;
-use std::fs;
-use crate::logic::Condition;
-use crate::base::*; // TODO fix after restructure
-use crate::relation::Table;
-use crate::logic::Operand;
+use crate::logic::{
+    Constraint,
+    Condition,
+    RelOp,
+    Operand
+};
+use crate::relation::{MemTable, Table};
+use crate::{DBError, Database};
+use crate::base::{
+    Identifier,
+    Domain,
+    Data
+};
 
 
 pub fn iterate_list<'a>(list: &'a str) -> Result<std::str::Split<'a, char>, Box<dyn Error>> {

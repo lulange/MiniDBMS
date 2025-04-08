@@ -61,7 +61,6 @@ impl Database {
     }
 }
 
-// TODO only bubble errors that should allow future commands to be run and then just print messages and continue
 #[derive(Debug)]
 pub enum DBError {
     ParseError(&'static str),

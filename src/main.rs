@@ -63,7 +63,6 @@ fn main() {
 // BIG TODOS
 /*
 1. Complete base todos written throughout the code so that the program is complete in theory
-2. Change error handling to return a custom error type and implement all error handling logic fully
 3. Comment all functions, modules, structs, etc to some specific format
 4. Create tests to ensure all logic works correctly / maybe split some functions for testing
 5. Last pass, check over everything line by line and do real-world testing
