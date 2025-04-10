@@ -21,6 +21,7 @@ pub struct Table {
     record_count: usize,
     meta_offset: usize,
     pub bst: Option<BST>,
+    pub key_attri_num: Option<usize>,
     record_length: u32,
     pub file_path: String,
 }
@@ -29,26 +30,36 @@ impl Table {
     pub fn build(
         name: &str,
         attributes: Vec<(Identifier, Domain)>,
-        primary_key: bool,
+        primary_key: Option<usize>,
         dir: &str,
     ) -> Result<Self, Box<dyn Error>> {
         for (i, attri1) in attributes.iter().enumerate() {
             for (j, attri2) in attributes.iter().enumerate() {
                 if i != j && attri1.0.name() == attri2.0.name() {
-                    return Err(Box::new(DBError::ConstraintError("Cannot have two attributes with the same Identifier in a table")))
+                    return Err(Box::new(DBError::ConstraintError("Cannot have two attributes with the same Identifier in a table.")))
                 }
             }
         }
 
         let name = Identifier::from(name)?; // reject name if not an identifier
         let mut record_length: u32 = 0;
-        let meta_offset = attributes.len() * 20 + 16; //  8 bytes at the beginning + 19 bytes per + 1 byte per + 8 bytes at the end
+        let meta_offset = attributes.len() * 20 + 24; //  16 bytes at the beginning + 19 bytes per + 1 byte per + 8 bytes at the end
         for (_, domain) in attributes.iter() {
             record_length += Domain::size_in_bytes(domain);
         }
 
         let file_path = format!("{dir}{}.dat", name.name());
         let mut file = File::create_new(&file_path)?;
+
+        if let Some(prim_key_num) = primary_key {
+            if prim_key_num < attributes.len() {
+                file.write_all(&prim_key_num.to_be_bytes())?;
+            } else {
+                return Err(Box::new(DBError::ConstraintError("Primary Key attribute index cannot be larger than the number of attributes.")))
+            }
+        } else {
+            file.write_all(&0_usize.to_be_bytes())?;
+        }
 
         // attribute list size
         file.write_all(&attributes.len().to_be_bytes())?; // 8 bytes
@@ -62,13 +73,13 @@ impl Table {
         file.write_all(&0_usize.to_be_bytes())
             .expect("Should be able to write to file."); // usize default
 
-        let bst = if primary_key {
+        let (bst, key_attri_num) = if let Some(prim_key_num) = primary_key {
             let bst_path = format!("{dir}{}.index", name.name());
             let bst = BST::new();
             bst.write_to_file(&bst_path)?; // this way the table will know it has a primary key based on the existence of this file
-            Some(bst)
+            (Some(bst), Some(prim_key_num))
         } else {
-            None
+            (None, None)
         };
 
         Ok(Table {
@@ -76,6 +87,7 @@ impl Table {
             record_count: 0,
             meta_offset,
             bst,
+            key_attri_num,
             record_length,
             file_path,
         })
@@ -109,15 +121,30 @@ impl Table {
         };
 
         let mut file = File::open(&file_path)?;
+
+        let mut key_attri_num: [u8; 8] = [0; 8];
+        file.read_exact(&mut key_attri_num)?;
+        let key_attri_num = usize::from_be_bytes(key_attri_num);
+
+        let key_attri_num = if let Some(_) = bst {
+            Some(key_attri_num)
+        } else {
+            None
+        };
+
         let mut attribute_list_len: [u8; 8] = [0; 8];
         file.read_exact(&mut attribute_list_len)?;
         let attribute_list_len = usize::from_be_bytes(attribute_list_len);
-        let meta_offset = attribute_list_len * 20 + 16;
+
+        let meta_offset = attribute_list_len * 20 + 24;
+
         let mut attributes_bytes: Vec<u8> = vec![0; attribute_list_len as usize * 20];
         file.read_exact(&mut attributes_bytes)?;
+
         let mut record_count: [u8; 8] = [0; 8];
         file.read_exact(&mut record_count)?;
         let record_count = usize::from_be_bytes(record_count);
+
         let mut attributes: Vec<(Identifier, Domain)> =
             Vec::with_capacity(attribute_list_len as usize);
 
@@ -147,6 +174,7 @@ impl Table {
             record_count,
             meta_offset,
             bst,
+            key_attri_num,
             record_length,
             file_path,
         })
@@ -164,15 +192,13 @@ impl Table {
 
     pub fn attributes_to_string_vec(&self) -> Vec<String> {
         let mut output = Vec::new();
-        let mut attri_iter = self.attributes.iter();
-        if self.bst.is_some() {
-            let (attribute, domain) = attri_iter
-                .next()
-                .expect("Tables should always have at least one attribute.");
-            output.push(format!("{}\t{} PRIMARY KEY", attribute.name(), domain.to_string()));
-        }
-        for (attribute, domain) in attri_iter {
-            output.push(format!("{}\t{}", attribute.name(), domain.to_string()));
+        let attri_iter = self.attributes.iter();
+        for (i, (attribute, domain)) in attri_iter.enumerate() {
+            if self.key_attri_num == Some(i) {
+                output.push(format!("{}\t{} PRIMARY KEY", attribute.name().to_uppercase(), domain.to_string()));
+            } else {
+                output.push(format!("{}\t{}", attribute.name().to_uppercase(), domain.to_string()));
+            }
         }
         output
     }
@@ -199,7 +225,7 @@ impl Table {
             }
         }
         if let Some(ref mut bst) = self.bst {
-            let key = record[0].clone();
+            let key = record[self.key_attri_num.unwrap()].clone();
             bst.insert(key, self.record_count)?;
         }
         self.record_count += 1;
@@ -232,11 +258,11 @@ impl Table {
             let data = match domain {
                 Domain::Float => {
                     offset += Float::byte_len();
-                    Data::Float(Float::from_bytes(&record_bytes[offset - 5..offset])?)
+                    Data::Float(Float::from_bytes(&record_bytes[offset - 5..offset].try_into().unwrap())?)
                 }
                 Domain::Integer => {
                     offset += Integer::byte_len();
-                    Data::Integer(Integer::from_bytes(&record_bytes[offset - 4..offset])?)
+                    Data::Integer(Integer::from_bytes(&record_bytes[offset - 4..offset].try_into().unwrap()))
                 }
                 Domain::Text => {
                     offset += 100;
@@ -248,7 +274,7 @@ impl Table {
         Ok(record)
     }
 
-    pub fn write_bst(&self) -> Result<(), Box<dyn Error>> {
+    pub fn write_bst(&self) -> Result<(), std::io::Error> {
         if let Some(ref bst) = self.bst {
             let mut bst_path = self.file_path.clone();
             bst_path.replace_range(self.file_path.len()-3.., "index");
@@ -271,11 +297,11 @@ impl Table {
                 let data = match domain {
                     Domain::Float => {
                         offset += Float::byte_len();
-                        Data::Float(Float::from_bytes(&records_bytes[offset - 5..offset])?)
+                        Data::Float(Float::from_bytes(&records_bytes[offset - 5..offset].try_into().unwrap())?)
                     }
                     Domain::Integer => {
                         offset += Integer::byte_len();
-                        Data::Integer(Integer::from_bytes(&records_bytes[offset - 4..offset])?)
+                        Data::Integer(Integer::from_bytes(&records_bytes[offset - 4..offset].try_into().unwrap()))
                     }
                     Domain::Text => {
                         offset += 100; // the max text byte length and the length we always store it as for tables
@@ -289,10 +315,10 @@ impl Table {
         Ok(records)
     }
 
-    pub fn rename_attributes(&self, new_attributes: Vec<Identifier>) -> Result<(), Box<dyn Error>> {
+    pub fn rename_attributes(&mut self, new_attributes: Vec<Identifier>) -> Result<(), Box<dyn Error>> {
         for (i, attri1) in new_attributes.iter().enumerate() {
             for (j, attri2) in new_attributes.iter().enumerate() {
-                if i != j && attri1.name() != attri2.name() {
+                if i != j && attri1.name() == attri2.name() {
                     return Err(Box::new(DBError::ConstraintError("Cannot have two attributes with the same Identifier in a table")))
                 }
             }
@@ -300,12 +326,17 @@ impl Table {
         let mut file = OpenOptions::new().write(true).open(&self.file_path)?;
 
         // just overwrite all front meta since seek-writing wouldn't greatly improve performance at all
+        file.write_all(&self.key_attri_num.unwrap_or_else(|| 0_usize).to_be_bytes())?;
         file.write_all(&self.attributes.len().to_be_bytes())?; // 8 bytes
-
-        for (attribute, (_, domain)) in new_attributes.iter().zip(&self.attributes) {
+        
+        let mut zipped_attris = Vec::with_capacity(self.attributes.len());
+        for (attribute, (_, domain)) in new_attributes.into_iter().zip(&self.attributes) {
             attribute.write_to_file(&file)?;
             domain.write_to_file(&file)?;
+            zipped_attris.push((attribute, domain.clone()));
         }
+
+        self.attributes = zipped_attris;
         Ok(())
     }
 
@@ -365,7 +396,7 @@ impl Table {
     pub fn update_all(&mut self, cond: Condition, new_values: Vec<(Identifier, Data)>) -> Result<(), Box<dyn Error>> {
         // load MemTable
         let mem_table = MemTable::build(self)?;
-        let record_nums: Vec<usize> = cond.filter_table_coords(&vec![mem_table], 0, &self.bst);
+        let record_nums: Vec<usize> = cond.filter_table_coords(&vec![mem_table], 0, &self.bst, &vec![self]);
 
         // check if updating a key more than once - which is illegal
         if self.bst.is_some() && record_nums.len() > 1 {
@@ -385,7 +416,7 @@ impl Table {
 
     pub fn delete_all(&mut self, cond: Condition) -> Result<(), Box<dyn Error>> {
         let mut mem_tables = vec![MemTable::build(self)?];
-        let mut record_nums = cond.filter_table_coords(&mem_tables, 0, &self.bst);
+        let mut record_nums = cond.filter_table_coords(&mem_tables, 0, &self.bst, &vec![self]);
         let mut mem_table = mem_tables.remove(0);
         record_nums.sort();
         for record_num in record_nums.into_iter().rev() {
@@ -555,38 +586,6 @@ impl MemTable {
         }
 
         project_attris
-    }
-
-    pub fn set_key(&mut self, key_attri: &str) -> Result<(), Box<dyn Error>> {
-        let mut found_key = false;
-        let mut key_num = 0;
-        for (i, (id,  _)) in self.get_projected_attribute_list().iter().enumerate() {
-            if id.name() == key_attri {
-                key_num = i;
-                found_key = true;
-                break;
-            }
-        }
-
-        if !found_key {
-            Err(DBError::ParseError("Could not find an attribute with the given name for KEY."))?
-        }
-
-        let mut key_checker = BST::new();
-
-        for record in self.records.iter_mut() {
-            if key_checker.insert(record[key_num].clone(), 0).is_err() {
-                Err(DBError::ParseError("Invalid key given. Multiple records have the same values"))?
-            }
-        }
-
-        for record in self.records.iter_mut() {
-            record.swap(0, key_num);
-        }
-
-        self.attributes.swap(0, key_num);
-
-        Ok(())
     }
 
     pub fn get_projected_record(&self, rec_num: usize) -> Vec<Data> {

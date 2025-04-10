@@ -72,7 +72,8 @@ impl Identifier {
             "all"|
             "values"|
             "set"|
-            "output"
+            "output"|
+            "none"
              => Err(DBError::ParseError("Cannot set an Identifier to a command name or reserved keyword")),
             _ => Ok(Identifier { name: String::from(name) })
         }
@@ -322,7 +323,7 @@ impl Domain {
             "text" => Ok(Domain::Text),
             "integer" => Ok(Domain::Integer),
             "float" => Ok(Domain::Float),
-            _ => Err(DBError::ParseError("Invalid Domain type {descriptor}")),
+            _ => Err(DBError::ParseError("Invalid Domain type.")),
         }
     }
 

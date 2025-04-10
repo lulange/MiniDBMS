@@ -110,8 +110,8 @@ pub fn create_table(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> 
     ));
 
     let primary_key = match (first_attri_iter.next(), first_attri_iter.next()) {
-        (None, None) => false,
-        (Some("primary"), Some("key")) => true,
+        (None, None) => None,
+        (Some("primary"), Some("key")) => Some(0),
         _ => {
             return Err(Box::new(DBError::ParseError(
                 "Did not recognize third argument in attribute definition.",
@@ -202,7 +202,7 @@ pub fn parse_new_attr_values(table: &Table, mut new_values: &str) -> Result<Vec<
 }
 
 pub fn select_from_tables(cmd: &str, db: &mut Database) -> Result<MemTable, Box<dyn Error>> {
-    let (attri_name_list, cmd) = match cmd.split_once("from") {
+    let (attri_name_list, cmd) = match cmd.split_once(" from ") {
         Some(tuple) => tuple,
         None => {
             return Err(Box::new(DBError::ParseError(
@@ -211,7 +211,7 @@ pub fn select_from_tables(cmd: &str, db: &mut Database) -> Result<MemTable, Box<
         }
     };
 
-    let (table_name_list, condition) = match cmd.split_once("where") {
+    let (table_name_list, condition) = match cmd.split_once(" where ") {
         Some((table_name_list, condition)) => (table_name_list, condition.trim()),
         None => (cmd, "") // "" here since no condition is always true
     };

@@ -159,7 +159,11 @@ impl<'a> Iterator for CmdIterator<'a> {
                 double_quotes = !double_quotes;
             // end a command
             } else if c == ';' && !double_quotes && !comment {
-                self.cmd.push_str(&self.text[self.pos..self.pos+since_last_push]);
+                self.cmd.push_str(
+                    &self.text[self.pos..self.pos+since_last_push] // replacements are necessary for parsing ease without Regex
+                        .replace('\r', " ") // for windows -- this and next line can be combined if guaranteed on windows
+                        .replace('\n', " ") // for mac and windows
+                );
                 self.pos += since_last_push+1; // +1 to ignore the semicolon
                 let cmd = std::mem::take(&mut self.cmd);
                 return Some(cmd)

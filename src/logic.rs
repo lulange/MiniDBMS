@@ -27,7 +27,7 @@ pub enum Operand {
 impl Operand {
     fn parse(op: &str) -> Result<Operand, DBError> {
         if op.starts_with('"') && op.ends_with('"') && op.len() > 1 && op.len() < 33 { // 0 to 30 characters in stringConst
-            return Ok(Operand::Value(Data::Text(Text::wrap(&op[1..op.len()-1]))))
+            return Ok(Operand::Value(Data::Text(Text::from(&op[1..op.len()-1]).unwrap())))
         }
 
         if let Ok(int) = op.parse::<i32>() {
@@ -152,19 +152,23 @@ impl Constraint {
         }
     }
 
-    fn get_key(&self) -> Option<Data> {
+    fn get_key(&self, tables: &Vec<&Table>) -> Option<Data> {
         if let Constraint {
-            left_op: Operand::Attribute((_, 0)),
+            left_op: Operand::Attribute((i, j)),
             rel_op: RelOp::Equals,
             right_op: Operand::Value(data) 
         } = self {
-            return Some(data.clone())
+            if tables[*i].key_attri_num == Some(*j) {
+                return Some(data.clone())
+            }
         } else if let Constraint {
             left_op: Operand::Value(data),
             rel_op: RelOp::Equals,
-            right_op: Operand::Attribute((_, 0))
+            right_op: Operand::Attribute((i, j))
         } = self {
-            return Some(data.clone())
+            if tables[*i].key_attri_num == Some(*j) {
+                return Some(data.clone())
+            }
         }
 
         None
@@ -290,7 +294,7 @@ impl Condition {
         }
     }
 
-    fn get_record_nums_from_bst(&mut self, bst: &BST) -> Vec<usize> {
+    fn get_record_nums_from_bst(&mut self, bst: &BST, tables: &Vec<&Table>) -> Vec<usize> {
         for (log_op, _) in self.bool_evals.iter() {
             if *log_op == LogOp::Or {
                 return bst.get_data(); // all are possible
@@ -303,7 +307,7 @@ impl Condition {
             match &self.bool_evals[i].1 {
                 BoolEval::Condition(_) => (),
                 BoolEval::Constraint(constraint) => {
-                    let new_key = constraint.get_key();
+                    let new_key = constraint.get_key(tables);
                     match new_key {
                         None => (),
                         Some(new_key) => {
@@ -339,11 +343,11 @@ impl Condition {
         }
     }
 
-    pub fn filter_table_coords(mut self, mem_tables: &Vec<MemTable>, table_num: usize, bst: &Option<BST>) -> Vec<usize> {
+    pub fn filter_table_coords(mut self, mem_tables: &Vec<MemTable>, table_num: usize, bst: &Option<BST>, tables: &Vec<&Table>) -> Vec<usize> {
         let mut selected: Vec<usize> = Vec::with_capacity(mem_tables[table_num].records.len());
 
         let records_coords: Vec<usize> = match bst {
-            Some(bst) => self.get_record_nums_from_bst(bst),
+            Some(bst) => self.get_record_nums_from_bst(bst, tables),
             None => (0..mem_tables[table_num].records.len()).collect()
         };
 
@@ -443,8 +447,8 @@ impl Condition {
         let mut record_nums_vec = Vec::new();
         for (i, _) in mem_tables.iter().enumerate() {
             record_nums_vec.push( match helpers.remove(&i) {
-                Some(helper) => helper.filter_table_coords(&mem_tables, i, &tables[i].bst),
-                None => Condition::parse("")?.filter_table_coords(&mem_tables, i, &tables[i].bst)
+                Some(helper) => helper.filter_table_coords(&mem_tables, i, &tables[i].bst, &tables),
+                None => Condition::parse("")?.filter_table_coords(&mem_tables, i, &tables[i].bst, &tables)
             });
         }
 

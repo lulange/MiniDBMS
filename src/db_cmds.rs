@@ -1,4 +1,4 @@
-use crate::{binary_search_tree::BST, logic::Condition, DBError, Database};
+use crate::{binary_search_tree::BST, logic::Condition, CmdIterator, DBError, Database};
 use std::{error::Error, fs::{File, OpenOptions}, io::{Read, Write}, vec};
 use crate::base::{
     Identifier,
@@ -79,6 +79,7 @@ fn run_select(cmd: &str, db: &mut Database) -> Result<Vec<String>, Box<dyn Error
 }
 
 fn run_rename(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
+    let cmd = cmd.trim_start();
     let (table_name, attribute_names) = match cmd.split_once(' ') {
         Some((table_name, attribute_names)) => (table_name.trim(), attribute_names.trim()),
         None => {
@@ -99,7 +100,7 @@ fn run_rename(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
 
     let mut new_attributes: Vec<Identifier> = Vec::new();
     for attribute_name in iterate_list(attribute_names)? {
-        new_attributes.push(Identifier::from(attribute_name)?);
+        new_attributes.push(Identifier::from(attribute_name.trim())?);
     }
     if table.attributes().len() != new_attributes.len() {
         return Err(Box::new(DBError::ConstraintError(
@@ -118,7 +119,7 @@ fn run_let(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
         )));
     }
 
-    let (new_table_name, cmd) = match cmd.split_once("key") {
+    let (new_table_name, cmd) = match cmd.split_once(" key ") {
         Some((new_table_name, cmd)) => (new_table_name.trim(), cmd.trim()),
         None => {
             return Err(Box::new(DBError::ParseError(
@@ -133,7 +134,7 @@ fn run_let(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
         )))
     }
 
-    let (key_attri, cmd) = match cmd.split_once("select") {
+    let (key_attri, cmd) = match cmd.split_once(" select ") {
         Some((key_attri, cmd)) => (key_attri.trim(), cmd.trim()),
         None => {
             return Err(Box::new(DBError::ParseError(
@@ -142,31 +143,48 @@ fn run_let(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let mut selected_table = select_from_tables(cmd, db)?;
+    let selected_table = select_from_tables(cmd, db)?;
 
-    // swap attributes so that key is in front and check uniqueness
-    selected_table.set_key(key_attri)?;
-
-    let attribute_list = selected_table
+    let attribute_list: Vec<(Identifier, Domain)> = selected_table
         .get_projected_attribute_list()
         .into_iter()
         .map(|tuple|  {tuple.clone()})
         .collect();
 
-    let mut table = Table::build(new_table_name, attribute_list, true, &db.path)?;
+    let mut primary_key = None;
+    for (i, attribute) in attribute_list.iter().enumerate() {
+        if key_attri == attribute.0.name() {
+            primary_key = Some(i);
+        }
+    }
+    if primary_key.is_none() && key_attri != "none" {
+        return Err(Box::new(DBError::ParseError(
+            "KEY given must be one of the selected attributes.",
+        )))
+    }
+
+    let mut table = Table::build(new_table_name, attribute_list, primary_key, &db.path)?;
 
     // write projected records to new table
     for rec_num in 0..selected_table.records.len() {
-        table.write_record(selected_table.get_projected_record(rec_num))?;
+        match table.write_record(selected_table.get_projected_record(rec_num)) {
+            Ok(()) => (),
+            Err(err) => {
+                table.clean_up()?;
+                return Err(err);
+            }
+        };
     }
 
     table.write_record_count()?;
 
-    // balance the bst plus write it to file
-    let mut bst_path = table.file_path.clone();
-    bst_path.replace_range(table.file_path.len()-3.., "index");
-    table.bst.unwrap().write_to_file(&bst_path)?;
-    table.bst = Some(BST::read_from_file(&bst_path)?);
+    if let Some(ref bst) = table.bst {
+        // balance the bst plus write it to file
+        let mut bst_path = table.file_path.clone();
+        bst_path.replace_range(table.file_path.len()-3.., "index");
+        bst.write_to_file(&bst_path)?;
+        table.bst = Some(BST::read_from_file(&bst_path)?);
+    }
 
     // setup table struct to use its builtin formatting
     db.table_map.insert(
@@ -179,12 +197,12 @@ fn run_let(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
 }
 
 fn run_update(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
-    let (table_name, cmd) = match cmd.split_once("set") {
+    let (table_name, cmd) = match cmd.split_once(" set ") {
         Some((table_name, cmd)) => (table_name.trim(), cmd.trim()),
         None => return Err(DBError::ParseError("UPDATE directive requires SET clause."))?
     };
 
-    let (new_values, condition) = match cmd.split_once("where") {
+    let (new_values, condition) = match cmd.split_once(" where ") {
         Some((new_values, condition)) => (new_values.trim(), condition.trim()),
         None => (cmd, "")
     };
@@ -202,7 +220,7 @@ fn run_update(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
 }
 
 fn run_delete(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
-    match cmd.split_once("where") {
+    match cmd.split_once(" where ") {
         Some((table_name, condition)) => delete_tuples(db, table_name.trim(), condition.trim())?,
         None => delete_table(db, cmd.trim())?
     }
@@ -211,7 +229,7 @@ fn run_delete(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
 }
 
 fn run_input(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
-    let (file_name, output_name) = match cmd.split_once("output") {
+    let (file_name, output_name) = match cmd.split_once(" output ") {
         Some((file_name, output_name)) => (file_name.trim(), output_name.trim()),
         None => (cmd.trim(), "")
     };
@@ -233,7 +251,7 @@ fn run_input(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     let mut input_string = String::new();
     input.read_to_string(&mut input_string)?;
 
-    for cmd in input_string.split_terminator(';') {
+    for cmd in CmdIterator::over(&input_string) {
         let output = run_cmd(cmd.trim_start(), db)?;
         if let Some(ref mut file) = output_file {
             let to_file = output.iter().map(|out| {
@@ -259,7 +277,7 @@ fn run_use(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
 
 fn run_insert(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     // table_name VALUES (data vec);
-    let (table_name, cmd) = match cmd.split_once("values") {
+    let (table_name, cmd) = match cmd.split_once(" values ") {
         Some((table_name, cmd)) => (table_name.trim(), cmd.trim()),
         None => {
             return Err(Box::new(DBError::ParseError(
@@ -288,7 +306,7 @@ fn run_insert(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
                 Domain::Text => {
                     if value.starts_with('"') && value.ends_with('"') && value.len() > 1 {
                         // unwrap the double quotes before feeding it to Text
-                        Ok(Data::Text(Text::from(&value[1..value.len()-1])?))
+                        Ok(Data::Text(Text::from(&value[1..value.len()-1].trim())?))
                     } else {
                         return Err(Box::new(DBError::ParseError("String literal expected. Wrap literals in double quotes.")))
                     }
@@ -333,13 +351,15 @@ fn run_describe(cmd: &str, db: &Database) -> Result<Vec<String>, Box<dyn Error>>
                 )))
             }
         };
-        output.push(format!("{table_name}"));
+        output.push(format!("{}", table_name.to_uppercase()));
         output.append(&mut table.attributes_to_string_vec());
+        output.push(String::from(""));
         return Ok(output);
     }
     for (table_name, table) in db.table_map.iter() {
-        output.push(format!("{table_name}"));
+        output.push(format!("{}", table_name.to_uppercase()));
         output.append(&mut table.attributes_to_string_vec());
+        output.push(String::from(""));
     }
 
     eprintln!("\tDESCRIBE Success!");
@@ -347,6 +367,7 @@ fn run_describe(cmd: &str, db: &Database) -> Result<Vec<String>, Box<dyn Error>>
 }
 
 fn run_create(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
+    let cmd = cmd.trim_start();
     let (cmd_0, cmd) = match cmd.split_once(' ') {
         Some(tuple) => tuple,
         None => {
@@ -361,9 +382,9 @@ fn run_create(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     } else if cmd_0 == "table" {
         create_table(cmd, db)?;
     } else {
-        Err(Box::new(DBError::ParseError(
+        Err(DBError::ParseError(
             "Syntax error after directive CREATE.",
-        )))?
+        ))?
     }
 
     eprintln!("\tCREATE Success!");
