@@ -1,7 +1,7 @@
+use dbms::BSTInsertErr;
 use dbms::{CmdIterator, DBError, Database};
 use std::io;
 use std::io::Write;
-use dbms::BSTInsertErr;
 
 /// Program entry point. Sets up a Database instance and begins input loop.
 fn main() {
@@ -26,7 +26,7 @@ fn main() {
             }
         }
         cmds.push_str(&line); // always ends with '\n' so comments will be valid
-        
+
         // iterate over all commands currently in cmds
         for cmd in CmdIterator::over(&cmds) {
             match dbms::run_cmd(cmd.trim_start(), &mut db) {
@@ -37,7 +37,7 @@ fn main() {
                         cmds.clear();
                         continue 'read;
                     }
-                    
+
                     // save table sizes and bst indices since those are otherwise kept in memory
                     dbms::run_exit(&mut db).expect("FAILED TO SAVE ON EXIT");
                 }
@@ -59,9 +59,6 @@ fn main() {
         }
     }
 }
-
-
-
 
 // BIG TODOS
 /*

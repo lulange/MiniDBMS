@@ -10,11 +10,16 @@ pub use db_cmds::run_exit;
 // bring all error types into the same scope
 pub use binary_search_tree::BSTInsertErr;
 
-mod binary_search_tree;
-mod db_cmds;
-mod relation;
-mod logic;
+/// Contains base types which help with data standardization
 mod base;
+/// Contains a Binary Search Tree that uses Data as a key and usize as a data payload
+mod binary_search_tree;
+/// Contains functions for all semantic database commands
+mod db_cmds;
+/// Contains code to aid with selecting/updating/deleting from tables
+mod logic;
+/// Contains Table and MemTable structs which abstract over interactions with database tables/relations
+mod relation;
 
 /// A master reference to the current database the program is working with
 pub struct Database {
@@ -35,9 +40,9 @@ impl Database {
 
     /// Creates a new Database with the given path and attempts to load
     /// all .dat files in as tables.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Will return an error if
     /// - The path given was invalid
     /// - The files in the database failed to load
@@ -108,29 +113,33 @@ impl Error for DBError {}
 pub struct CmdIterator<'a> {
     pos: usize,
     text: &'a str,
-    cmd: String
+    cmd: String,
 }
 
 impl<'a> CmdIterator<'a> {
-    /// Creates a CmdIterator with a lifetime connected to the given str reference. 
+    /// Creates a CmdIterator with a lifetime connected to the given str reference.
     /// Iterator ignores comments starting with '#' and ending with '\n'.
     /// Iterator also ignores semicolon terminators inside a double quoted sub-string.
     /// Does not trim whitespace from returned Strings.
     pub fn over(text: &'a str) -> Self {
-        CmdIterator { pos: 0, text, cmd: String::from("") }
+        CmdIterator {
+            pos: 0,
+            text,
+            cmd: String::from(""),
+        }
     }
 }
 
 impl<'a> Iterator for CmdIterator<'a> {
     type Item = String; // returns String instead of &str since it needs to concatenate &str's that exclude comments
 
-    /// Returns the next semicolon terminated String found in self.text. 
+    /// Returns the next semicolon terminated String found in self.text.
     /// Iterator ignores comments starting with '#' and ending with '\n'.
     /// Iterator also ignores semicolon terminators inside a double quoted sub-string.
     /// Does not trim whitespace from returned Strings.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use dbms::CmdIterator;
     /// let mut cmd_iter = CmdIterator::over("one \" ; \"; two # comment \n; three;");
@@ -148,7 +157,8 @@ impl<'a> Iterator for CmdIterator<'a> {
             // start a comment
             if c == '#' && !double_quotes && !comment {
                 comment = true;
-                self.cmd.push_str(&self.text[self.pos..self.pos+since_last_push]);
+                self.cmd
+                    .push_str(&self.text[self.pos..self.pos + since_last_push]);
             // end a comment
             } else if c == '\n' && comment {
                 comment = false;
@@ -160,13 +170,13 @@ impl<'a> Iterator for CmdIterator<'a> {
             // end a command
             } else if c == ';' && !double_quotes && !comment {
                 self.cmd.push_str(
-                    &self.text[self.pos..self.pos+since_last_push] // replacements are necessary for parsing ease without Regex
+                    &self.text[self.pos..self.pos + since_last_push] // replacements are necessary for parsing ease without Regex
                         .replace('\r', " ") // for windows -- this and next line can be combined if guaranteed on windows
-                        .replace('\n', " ") // for mac and windows
+                        .replace('\n', " "), // for mac and windows
                 );
-                self.pos += since_last_push+1; // +1 to ignore the semicolon
+                self.pos += since_last_push + 1; // +1 to ignore the semicolon
                 let cmd = std::mem::take(&mut self.cmd);
-                return Some(cmd)
+                return Some(cmd);
             }
             since_last_push += 1; // not equivalent to a count of the loop since is set to 0 sometimes
         }

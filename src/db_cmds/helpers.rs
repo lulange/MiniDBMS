@@ -1,24 +1,16 @@
-use std::{
-    collections::HashMap,
-    path,
-    fs
-};
-use std::error::Error;
-use crate::logic::{
-    Constraint,
-    Condition,
-    RelOp,
-    Operand
-};
+use crate::base::{Data, Domain, Identifier};
+use crate::logic::{Condition, Constraint, Operand, RelOp};
 use crate::relation::{MemTable, Table};
 use crate::{DBError, Database};
-use crate::base::{
-    Identifier,
-    Domain,
-    Data
-};
+use std::error::Error;
+use std::{collections::HashMap, fs, path};
 
-
+/// Attempts to split a parenthesis surrounded list. Returns a result containing either the iterator
+/// over that split or a parsing Error
+///
+/// # Errors
+///
+/// Fails when list is not in the format '(item, item, item)'
 pub fn iterate_list<'a>(list: &'a str) -> Result<std::str::Split<'a, char>, Box<dyn Error>> {
     let (check, list) = match list.split_once('(') {
         Some(tuple) => tuple,
@@ -53,6 +45,12 @@ pub fn iterate_list<'a>(list: &'a str) -> Result<std::str::Split<'a, char>, Box<
     return Ok(list.split(','));
 }
 
+/// Attempts to parse and run the CREATE DATABASE sub-command. Returns a result indicating either
+/// a success or a parsing/file Error
+///
+/// # Errors
+///
+/// Fails when cannot parse command or when the filesystem cannot be written to.
 pub fn create_database(cmd: &str) -> Result<(), Box<dyn Error>> {
     let db_name = Identifier::from(cmd.trim())?;
 
@@ -67,6 +65,12 @@ pub fn create_database(cmd: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Attempts to parse and run the CREATE TABLE sub-command. Returns a result indicating either
+/// a success or a parsing/file Error
+///
+/// # Errors
+///
+/// Fails when cannot parse command or when the file cannot be created/written to.
 pub fn create_table(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     if db.path == "" {
         return Err(Box::new(DBError::ParseError(
@@ -86,7 +90,7 @@ pub fn create_table(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> 
     if db.table_map.get(table_name).is_some() {
         return Err(Box::new(DBError::ParseError(
             "Table with name given already exists.",
-        )))
+        )));
     }
 
     let mut attribute_list: Vec<(Identifier, Domain)> = Vec::new();
@@ -139,25 +143,50 @@ pub fn create_table(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
+/// Attempts to parse and run the DELETE .. WHERE sub-command. Returns a result indicating either
+/// a success or a parsing/file Error
+///
+/// # Errors
+///
+/// Fails when cannot parse command or when the filesystem cannot be written to.
 pub fn delete_tuples(db: &mut Database, table: &str, cond: &str) -> Result<(), Box<dyn Error>> {
     let cond = Condition::parse(cond)?;
     match db.table_map.get_mut(table) {
         Some(table) => cond.delete(table),
-        None => Err(DBError::ParseError("Could not find a table with that name to delete from."))?
+        None => Err(DBError::ParseError(
+            "Could not find a table with that name to delete from.",
+        ))?,
     }
 }
 
+/// Attempts to parse and run the DELETE table; sub-command. Returns a result indicating either
+/// a success or a parsing/file Error
+///
+/// # Errors
+///
+/// Fails when cannot parse command or when the filesystem cannot be written to.
 pub fn delete_table(db: &mut Database, table: &str) -> Result<(), Box<dyn Error>> {
     match db.table_map.remove(table) {
         Some(table) => {
             table.clean_up()?;
             Ok(())
-        },
-        None => Err(DBError::ParseError("Could not find a table with that name to delete."))?
+        }
+        None => Err(DBError::ParseError(
+            "Could not find a table with that name to delete.",
+        ))?,
     }
 }
 
-pub fn parse_new_attr_values(table: &Table, mut new_values: &str) -> Result<Vec<(Identifier, Data)>, Box<dyn Error>> {
+/// Attempts to parse new attribute values for the UPDATE command. Returns a result containing either
+/// the successful parsing or a parsing/constraint error
+///
+/// # Errors
+///
+/// Fails when cannot parse command/attributes or when two attributes given have the same Identifier
+pub fn parse_new_attr_values(
+    table: &Table,
+    mut new_values: &str,
+) -> Result<Vec<(Identifier, Data)>, Box<dyn Error>> {
     let tables = vec![table];
     let mut new_value_equalities = Vec::new();
     let mut constraint;
@@ -168,7 +197,9 @@ pub fn parse_new_attr_values(table: &Table, mut new_values: &str) -> Result<Vec<
             constraint.convert_with(&tables)?;
             new_value_equalities.push(constraint);
         } else {
-            Err(DBError::ParseError("Found incorrect operator in UPDATE SET clause."))?
+            Err(DBError::ParseError(
+                "Found incorrect operator in UPDATE SET clause.",
+            ))?
         }
         if !new_values.is_empty() {
             new_values = &new_values[1..]; // remove a comma if there is one
@@ -184,16 +215,22 @@ pub fn parse_new_attr_values(table: &Table, mut new_values: &str) -> Result<Vec<
         let id = match equality.left_op {
             Operand::Attribute((_, j)) => {
                 if attributes_used.insert(j, 0).is_some() {
-                    Err(DBError::ParseError("Cannot set an attribute twice in an UPDATE SET clause."))?
+                    Err(DBError::ParseError(
+                        "Cannot set an attribute twice in an UPDATE SET clause.",
+                    ))?
                 }
                 table.attributes()[j].0.clone()
             }
-            _ => Err(DBError::ParseError("Expected Attribute name in left operator for UPDATE SET clause."))?
+            _ => Err(DBError::ParseError(
+                "Expected Attribute name in left operator for UPDATE SET clause.",
+            ))?,
         };
 
         let data = match equality.right_op {
             Operand::Value(data) => data,
-            _ => Err(DBError::ParseError("Expected Data value in right operator for UPDATE SET clause."))?
+            _ => Err(DBError::ParseError(
+                "Expected Data value in right operator for UPDATE SET clause.",
+            ))?,
         };
 
         new_values.push((id, data));
@@ -201,6 +238,12 @@ pub fn parse_new_attr_values(table: &Table, mut new_values: &str) -> Result<Vec<
     Ok(new_values)
 }
 
+/// Attempts to parse and run the SELECT command. Returns a result containing the successfully selected
+/// MemTable or a parsing/file error.
+///
+/// # Errors
+///
+/// Fails when cannot parse command or when the filesystem cannot be read from.
 pub fn select_from_tables(cmd: &str, db: &mut Database) -> Result<MemTable, Box<dyn Error>> {
     let (attri_name_list, cmd) = match cmd.split_once(" from ") {
         Some(tuple) => tuple,
@@ -213,9 +256,8 @@ pub fn select_from_tables(cmd: &str, db: &mut Database) -> Result<MemTable, Box<
 
     let (table_name_list, condition) = match cmd.split_once(" where ") {
         Some((table_name_list, condition)) => (table_name_list, condition.trim()),
-        None => (cmd, "") // "" here since no condition is always true
+        None => (cmd, ""), // "" here since no condition is always true
     };
-
 
     let select_attributes: Vec<&str> = attri_name_list
         .split(",")
@@ -231,7 +273,9 @@ pub fn select_from_tables(cmd: &str, db: &mut Database) -> Result<MemTable, Box<
     for table_name in table_name_list {
         match db.table_map.get(table_name) {
             Some(table) => tables.push(table),
-            None => Err(DBError::ParseError("Could not find one of the tables to SELECT from."))?
+            None => Err(DBError::ParseError(
+                "Could not find one of the tables to SELECT from.",
+            ))?,
         }
     }
 

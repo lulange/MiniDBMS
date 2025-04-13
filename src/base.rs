@@ -1,8 +1,8 @@
+use crate::DBError;
 use std::cmp::Ordering;
 use std::error::Error;
 use std::fs::File;
 use std::io::Write;
-use crate::DBError;
 
 /// The Identifier type is a wrapper type for attribute names in tables and database/table names.
 /// It enforces ascii-alphanumeracy, a length limit of 19, and an avoidance of restricted keywords.
@@ -15,67 +15,52 @@ pub struct Identifier {
 impl Identifier {
     /// Attempts to create a new Identifier from a str reference.
     /// Will copy the characters out of the given reference to store an owned value.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use dbms::base::Identifier;
     ///
     /// Identifier::from("name1234").unwrap();
     /// ```
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Fails when name
     /// - has length greater than 19
     /// - is empty
     /// - is not ascii-alphanumeric
+    /// - is only numeric
     /// - is a reserved keyword
     pub fn from(name: &str) -> Result<Self, DBError> {
         let name = &name.to_lowercase()[..]; // should already be lowercase but just in case
         if name.len() > 19 {
             return Err(DBError::ParseError(
-                "Identifer name cannot be longer than 19 characters",
+                "Identifer name cannot be longer than 19 characters.",
             ));
         } else if name.is_empty() {
-            return Err(DBError::ParseError(
-                "Identifer cannot be an empty string",
-            ));
+            return Err(DBError::ParseError("Identifer cannot be an empty string."));
+        }
+
+        if let Ok(_) = name.parse::<u32>() {
+            return Err(DBError::ParseError("Identifer cannot be all numeric."));
         }
 
         for c in name.chars() {
-            if !c.is_ascii_alphanumeric() {
-                return Err(DBError::ParseError(
-                    "Identifier is not alphanumeric.",
-                ));
+            if !c.is_ascii_alphanumeric() && c != '_' {
+                return Err(DBError::ParseError("Identifier is not alphanumeric."));
             }
         }
 
         match name {
-            "create"|
-            "database"|
-            "select"|
-            "use"|
-            "describe"|
-            "let"|
-            "insert"|
-            "update"|
-            "delete"|
-            "input"|
-            "exit"|
-            "rename"|
-            "table"|
-            "primary"|
-            "key"|
-            "where"|
-            "from"|
-            "all"|
-            "values"|
-            "set"|
-            "output"|
-            "none"
-             => Err(DBError::ParseError("Cannot set an Identifier to a command name or reserved keyword")),
-            _ => Ok(Identifier { name: String::from(name) })
+            "create" | "database" | "select" | "use" | "describe" | "let" | "insert" | "update"
+            | "delete" | "input" | "exit" | "rename" | "table" | "primary" | "key" | "where"
+            | "from" | "all" | "values" | "set" | "output" | "none" => Err(DBError::ParseError(
+                "Cannot set an Identifier to a command name or reserved keyword",
+            )),
+            _ => Ok(Identifier {
+                name: String::from(name),
+            }),
         }
     }
 
@@ -87,9 +72,9 @@ impl Identifier {
     /// Format and write an Identifier to a file.
     /// This adds space characters so that all Identifiers take up the maximum space of 19 bytes.
     /// To aid in file formatting when storing tables.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Fails when cannot write to the file given.
     pub fn write_to_file(&self, mut file: &File) -> Result<(), std::io::Error> {
         let mut buf_to_write: [u8; 19] = [b' '; 19]; // write spaces that can be trimmed
@@ -113,9 +98,9 @@ pub struct Text {
 
 impl Text {
     /// Reads an instance of Text back from a u8 slice.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// This function expects a byte array with length 100 or less.
     /// It fails when
     /// - The given slice contains more than 100 characters
@@ -147,7 +132,7 @@ impl Text {
 
     /// Copies a str reference into a Text instance.
     /// Guarantees that the String has length less than or equal to 100.
-    /// 
+    ///
     /// # Errors
     /// - Fails when content has length greater than 100
     pub fn from(content: &str) -> Result<Self, DBError> {
@@ -176,7 +161,9 @@ pub struct Integer {
 impl Integer {
     /// Returns a wrapped i32 from a string reference
     pub fn from_bytes(bytes: &[u8; 4]) -> Self {
-        Integer { value: i32::from_be_bytes(*bytes) }
+        Integer {
+            value: i32::from_be_bytes(*bytes),
+        }
     }
 
     /// Shortcut to self.value().to_be_bytes()
@@ -191,12 +178,14 @@ impl Integer {
     }
 
     /// Attempts to parse an i32 out of the str reference in value.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Fails when value cannot be parsed into an i32
     pub fn from(value: &str) -> Result<Self, Box<dyn Error>> {
-        Ok(Integer { value: value.parse()? })
+        Ok(Integer {
+            value: value.parse()?,
+        })
     }
 
     /// Returns a reference to the wrapped i32 value.
@@ -223,18 +212,19 @@ impl Float {
     /// Reads a Float instance from an array of 5 u8 values.
     /// The first 4 bytes are treated as an i32 while the last 1
     /// is treated as the positive or negative fractional addition.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Fails if the 5th byte is greater than or equal to 200
     /// since that has no defined meaning in the format Float uses.
     pub fn from_bytes(bytes: &[u8; 5]) -> Result<Self, DBError> {
         let four_bytes: [u8; 4] = bytes[0..4].try_into().unwrap();
         let mut float = i32::from_be_bytes(four_bytes) as f64; // i32 portion
         let decimal = if bytes[4] >= 200 {
-            return Err(DBError::FileFormatError("Float in incorrect format."))
-        } else if bytes[4] > 100 { // if last byte > 100, then it is negative -- this is similar to using i8
-            -((bytes[4]-100) as f64)
+            return Err(DBError::FileFormatError("Float in incorrect format."));
+        } else if bytes[4] > 100 {
+            // if last byte > 100, then it is negative -- this is similar to using i8
+            -((bytes[4] - 100) as f64)
         } else {
             bytes[4] as f64
         };
@@ -254,14 +244,14 @@ impl Float {
 
     /// Attempts to read a Float out of a string reference. Rounds
     /// the internal value given to only contain two decimal places.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Fails float &str given cannot be parsed as a float value.
     pub fn from(float: &str) -> Result<Self, Box<dyn Error>> {
         let mut float = float.parse::<f64>()?;
-        float = (float*100.).round() / 100.; // remove extra precision
-        Ok(Float{ float })
+        float = (float * 100.).round() / 100.; // remove extra precision
+        Ok(Float { float })
     }
 
     /// Returns a constant value for use in file loading.
@@ -274,7 +264,7 @@ impl Float {
         &self.float
     }
 
-    /// Returns a formatted string that cuts off floating point precision artifacts by rounding. 
+    /// Returns a formatted string that cuts off floating point precision artifacts by rounding.
     pub fn to_string(&self) -> String {
         let i = self.float as i32;
         let f = ((self.float - i as f64) * 100.).round(); // round to two decimal places
@@ -294,10 +284,8 @@ impl Float {
 
     /// Returns an Integer reference that wraps the given i32 value.
     pub fn wrap(float: f64) -> Self {
-        let float = (float*100.).round() / 100.; // remove extra precision
-        Float {
-            float
-        }
+        let float = (float * 100.).round() / 100.; // remove extra precision
+        Float { float }
     }
 }
 
@@ -313,9 +301,9 @@ pub enum Domain {
 impl Domain {
     /// Attempt to read a domain out of a descriptor string reference.
     /// Only recognizes lowercase values.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Fails when descriptor does not reference one of the three
     /// Domain variants.
     pub fn from(descriptor: &str) -> Result<Self, DBError> {
@@ -331,7 +319,7 @@ impl Domain {
     /// the byte size of the datatype for the Domain variant given
     pub fn size_in_bytes(&self) -> u32 {
         match self {
-            Domain::Float => Float::byte_len() as u32,   // i32 + u8 fraction
+            Domain::Float => Float::byte_len() as u32, // i32 + u8 fraction
             Domain::Integer => Integer::byte_len() as u32, // i32
             Domain::Text => 100, // Text has no byte_len() function but always stores itself as 100 bytes
         }
@@ -364,24 +352,25 @@ pub enum Data {
     Float(Float),
 }
 
-
 impl Data {
     /// Attempts to read a Data variant from a slice of bytes.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Fails when bytes cannot be parsed into any Data variant.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
         match bytes.len() {
-            4 => { // Integer::byte_len()
-                Ok(Data::Integer(Integer::from_bytes(bytes.try_into().unwrap())))
+            4 => {
+                // Integer::byte_len()
+                Ok(Data::Integer(Integer::from_bytes(
+                    bytes.try_into().unwrap(),
+                )))
             }
-            5 => { // Float::byte_len()
+            5 => {
+                // Float::byte_len()
                 Ok(Data::Float(Float::from_bytes(bytes.try_into().unwrap())?))
             }
-            _ => {
-                Ok(Data::Text(Text::from_bytes(bytes)?))
-            }
+            _ => Ok(Data::Text(Text::from_bytes(bytes)?)),
         }
     }
 
@@ -398,32 +387,25 @@ impl Data {
                 }
                 text_vec
             }
-            Data::Float(float) => {
-                float.to_bytes().to_vec()
-            }
-            Data::Integer(int) => {
-                int.to_bytes().to_vec()
-            }
+            Data::Float(float) => float.to_bytes().to_vec(),
+            Data::Integer(int) => int.to_bytes().to_vec(),
         }
     }
 
     /// Returns an Ordering based on the comparison of the payload of
     /// two given Data variants.
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics when given incompatible/unequal variants.
     pub fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
-            (Data::Float(f1), Data::Float(f2)) => {
-                f1.float.partial_cmp(&f2.float).expect("No Nan or other odd float values allowed")
-            }
-            (Data::Integer(i1), Data::Integer(i2)) => {
-                i1.value.cmp(&i2.value)
-            }
-            (Data::Text(t1), Data::Text(t2)) => {
-                t1.content.cmp(&t2.content)
-            }
+            (Data::Float(f1), Data::Float(f2)) => f1
+                .float
+                .partial_cmp(&f2.float)
+                .expect("No Nan or other odd float values allowed"),
+            (Data::Integer(i1), Data::Integer(i2)) => i1.value.cmp(&i2.value),
+            (Data::Text(t1), Data::Text(t2)) => t1.content.cmp(&t2.content),
             _ => {
                 panic!("Can't compare Data variants that are incompatible");
             }

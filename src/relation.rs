@@ -1,20 +1,14 @@
+use super::base::{Data, Domain, Float, Identifier, Integer, Text};
+use crate::binary_search_tree::{BSTInsertErr, BST};
+use crate::logic::Condition;
+use crate::DBError;
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek};
-use std::io::{Write, SeekFrom};
+use std::io::{SeekFrom, Write};
 use std::vec;
-use crate::binary_search_tree::{BSTInsertErr, BST};
-use crate::DBError;
-use super::base::{
-    Identifier,
-    Data,
-    Domain,
-    Float,
-    Integer,
-    Text,
-};
-use crate::logic::Condition;
 
+// TODO comments
 
 pub struct Table {
     attributes: Vec<(Identifier, Domain)>,
@@ -36,7 +30,9 @@ impl Table {
         for (i, attri1) in attributes.iter().enumerate() {
             for (j, attri2) in attributes.iter().enumerate() {
                 if i != j && attri1.0.name() == attri2.0.name() {
-                    return Err(Box::new(DBError::ConstraintError("Cannot have two attributes with the same Identifier in a table.")))
+                    return Err(Box::new(DBError::ConstraintError(
+                        "Cannot have two attributes with the same Identifier in a table.",
+                    )));
                 }
             }
         }
@@ -55,7 +51,9 @@ impl Table {
             if prim_key_num < attributes.len() {
                 file.write_all(&prim_key_num.to_be_bytes())?;
             } else {
-                return Err(Box::new(DBError::ConstraintError("Primary Key attribute index cannot be larger than the number of attributes.")))
+                return Err(Box::new(DBError::ConstraintError(
+                    "Primary Key attribute index cannot be larger than the number of attributes.",
+                )));
             }
         } else {
             file.write_all(&0_usize.to_be_bytes())?;
@@ -98,10 +96,10 @@ impl Table {
         match self.bst {
             Some(_) => {
                 let mut bst_path = self.file_path.clone();
-                bst_path.replace_range(self.file_path.len()-3.., "index");
+                bst_path.replace_range(self.file_path.len() - 3.., "index");
                 fs::remove_file(&bst_path)?; // use full match to use the ? op
             }
-            None => ()
+            None => (),
         }
         Ok(())
     }
@@ -194,10 +192,25 @@ impl Table {
         let mut output = Vec::new();
         let attri_iter = self.attributes.iter();
         for (i, (attribute, domain)) in attri_iter.enumerate() {
-            if self.key_attri_num == Some(i) {
-                output.push(format!("{}\t{} PRIMARY KEY", attribute.name().to_uppercase(), domain.to_string()));
+            let tabs = if attribute.name().len() > 15 {
+                "\t"
+            } else if attribute.name().len() > 7 {
+                "\t\t"
             } else {
-                output.push(format!("{}\t{}", attribute.name().to_uppercase(), domain.to_string()));
+                "\t\t\t"
+            };
+            if self.key_attri_num == Some(i) {
+                output.push(format!(
+                    "{}{tabs}{}\tPRIMARY KEY",
+                    attribute.name().to_uppercase(),
+                    domain.to_string()
+                ));
+            } else {
+                output.push(format!(
+                    "{}{tabs}{}",
+                    attribute.name().to_uppercase(),
+                    domain.to_string()
+                ));
             }
         }
         output
@@ -248,9 +261,9 @@ impl Table {
         let mut file = File::open(&self.file_path)?;
         let mut record_bytes: Vec<u8> = vec![0; self.record_length as usize];
 
-        file.seek(
-            SeekFrom::Start((self.meta_offset + record_num * self.record_length as usize) as u64)
-        )?;
+        file.seek(SeekFrom::Start(
+            (self.meta_offset + record_num * self.record_length as usize) as u64,
+        ))?;
         file.read_exact(&mut record_bytes)?;
         let mut record: Vec<Data> = Vec::with_capacity(self.attributes.len());
         let mut offset = 0;
@@ -258,11 +271,15 @@ impl Table {
             let data = match domain {
                 Domain::Float => {
                     offset += Float::byte_len();
-                    Data::Float(Float::from_bytes(&record_bytes[offset - 5..offset].try_into().unwrap())?)
+                    Data::Float(Float::from_bytes(
+                        &record_bytes[offset - 5..offset].try_into().unwrap(),
+                    )?)
                 }
                 Domain::Integer => {
                     offset += Integer::byte_len();
-                    Data::Integer(Integer::from_bytes(&record_bytes[offset - 4..offset].try_into().unwrap()))
+                    Data::Integer(Integer::from_bytes(
+                        &record_bytes[offset - 4..offset].try_into().unwrap(),
+                    ))
                 }
                 Domain::Text => {
                     offset += 100;
@@ -277,7 +294,7 @@ impl Table {
     pub fn write_bst(&self) -> Result<(), std::io::Error> {
         if let Some(ref bst) = self.bst {
             let mut bst_path = self.file_path.clone();
-            bst_path.replace_range(self.file_path.len()-3.., "index");
+            bst_path.replace_range(self.file_path.len() - 3.., "index");
             bst.write_to_file(&bst_path)
         } else {
             Ok(())
@@ -297,11 +314,15 @@ impl Table {
                 let data = match domain {
                     Domain::Float => {
                         offset += Float::byte_len();
-                        Data::Float(Float::from_bytes(&records_bytes[offset - 5..offset].try_into().unwrap())?)
+                        Data::Float(Float::from_bytes(
+                            &records_bytes[offset - 5..offset].try_into().unwrap(),
+                        )?)
                     }
                     Domain::Integer => {
                         offset += Integer::byte_len();
-                        Data::Integer(Integer::from_bytes(&records_bytes[offset - 4..offset].try_into().unwrap()))
+                        Data::Integer(Integer::from_bytes(
+                            &records_bytes[offset - 4..offset].try_into().unwrap(),
+                        ))
                     }
                     Domain::Text => {
                         offset += 100; // the max text byte length and the length we always store it as for tables
@@ -315,11 +336,16 @@ impl Table {
         Ok(records)
     }
 
-    pub fn rename_attributes(&mut self, new_attributes: Vec<Identifier>) -> Result<(), Box<dyn Error>> {
+    pub fn rename_attributes(
+        &mut self,
+        new_attributes: Vec<Identifier>,
+    ) -> Result<(), Box<dyn Error>> {
         for (i, attri1) in new_attributes.iter().enumerate() {
             for (j, attri2) in new_attributes.iter().enumerate() {
                 if i != j && attri1.name() == attri2.name() {
-                    return Err(Box::new(DBError::ConstraintError("Cannot have two attributes with the same Identifier in a table")))
+                    return Err(Box::new(DBError::ConstraintError(
+                        "Cannot have two attributes with the same Identifier in a table",
+                    )));
                 }
             }
         }
@@ -328,7 +354,7 @@ impl Table {
         // just overwrite all front meta since seek-writing wouldn't greatly improve performance at all
         file.write_all(&self.key_attri_num.unwrap_or_else(|| 0_usize).to_be_bytes())?;
         file.write_all(&self.attributes.len().to_be_bytes())?; // 8 bytes
-        
+
         let mut zipped_attris = Vec::with_capacity(self.attributes.len());
         for (attribute, (_, domain)) in new_attributes.into_iter().zip(&self.attributes) {
             attribute.write_to_file(&file)?;
@@ -340,7 +366,11 @@ impl Table {
         Ok(())
     }
 
-    fn update_record(&mut self, record_num: usize, new_values: &Vec<(Identifier, Data)>) -> Result<(), Box<dyn Error>> {
+    fn update_record(
+        &mut self,
+        record_num: usize,
+        new_values: &Vec<(Identifier, Data)>,
+    ) -> Result<(), Box<dyn Error>> {
         let prev_record = self.read_record(record_num)?;
         let mut record = prev_record.clone();
 
@@ -374,17 +404,19 @@ impl Table {
         }
 
         let mut file = OpenOptions::new().write(true).open(&self.file_path)?;
-        file.seek(
-            SeekFrom::Start((self.meta_offset + record_num * self.record_length as usize) as u64)
-        )?;
+        file.seek(SeekFrom::Start(
+            (self.meta_offset + record_num * self.record_length as usize) as u64,
+        ))?;
 
         if let Some(ref mut bst) = self.bst {
             if prev_record[0] != record[0] {
                 bst.remove(&prev_record[0]);
                 let key = record[0].clone();
                 match bst.insert(key, record_num) {
-                    Err(BSTInsertErr) => Err(DBError::ConstraintError("Cannot set a key to the value of another key in the table."))?,
-                    _ => ()
+                    Err(BSTInsertErr) => Err(DBError::ConstraintError(
+                        "Cannot set a key to the value of another key in the table.",
+                    ))?,
+                    _ => (),
                 }
             }
         }
@@ -393,17 +425,24 @@ impl Table {
         Ok(())
     }
 
-    pub fn update_all(&mut self, cond: Condition, new_values: Vec<(Identifier, Data)>) -> Result<(), Box<dyn Error>> {
+    pub fn update_all(
+        &mut self,
+        cond: Condition,
+        new_values: Vec<(Identifier, Data)>,
+    ) -> Result<(), Box<dyn Error>> {
         // load MemTable
         let mem_table = MemTable::build(self)?;
-        let record_nums: Vec<usize> = cond.filter_table_coords(&vec![mem_table], 0, &self.bst, &vec![self]);
+        let record_nums: Vec<usize> =
+            cond.filter_table_coords(&vec![mem_table], 0, &self.bst, &vec![self]);
 
         // check if updating a key more than once - which is illegal
         if self.bst.is_some() && record_nums.len() > 1 {
             for (id, _) in new_values.iter() {
                 if id.name() == self.attributes[0].0.name() {
                     // updating a key more than once
-                    Err(DBError::ConstraintError("Cannot set more than one key value at a time."))?
+                    Err(DBError::ConstraintError(
+                        "Cannot set more than one key value at a time.",
+                    ))?
                 }
             }
         }
@@ -425,7 +464,7 @@ impl Table {
 
         match self.bst {
             None => (),
-            Some(ref mut bst) => *bst = BST::new()
+            Some(ref mut bst) => *bst = BST::new(),
         }
 
         let file = OpenOptions::new().write(true).open(&self.file_path)?;
@@ -442,7 +481,7 @@ impl Table {
             None => (),
             Some(ref mut bst) => {
                 let mut bst_path = self.file_path.clone();
-                bst_path.replace_range(self.file_path.len()-3.., "index");
+                bst_path.replace_range(self.file_path.len() - 3.., "index");
                 bst.write_to_file(&bst_path)?;
                 *bst = BST::read_from_file(&bst_path)?; // balances the bst... not the best way to do this but it works for the purposes we need
             }
@@ -462,29 +501,35 @@ pub struct MemTable {
 }
 
 impl MemTable {
-    pub fn build(table: & Table) ->  Result<Self, Box<dyn Error>> {
-        Ok( MemTable {
+    pub fn build(table: &Table) -> Result<Self, Box<dyn Error>> {
+        Ok(MemTable {
             records: table.read_all_data()?,
-            attributes: table.attributes.iter()
-                .map(|(identifier, domain)| {
-                    ((*identifier).clone(), domain.clone())
-                }).collect(),
-            projection: (0..table.attributes.len()).collect() // start with all attributes projected
+            attributes: table
+                .attributes
+                .iter()
+                .map(|(identifier, domain)| ((*identifier).clone(), domain.clone()))
+                .collect(),
+            projection: (0..table.attributes.len()).collect(), // start with all attributes projected
         })
     }
 
-    pub fn build_from_records(records: Vec<Vec<Data>>, attributes: Vec<(Identifier, Domain)>) ->  Result<Self, Box<dyn Error>> {
+    pub fn build_from_records(
+        records: Vec<Vec<Data>>,
+        attributes: Vec<(Identifier, Domain)>,
+    ) -> Result<Self, Box<dyn Error>> {
         let attributes_len = attributes.len();
         let mem_table = MemTable {
             records,
             attributes,
-            projection: (0..attributes_len).collect() // start with all attributes projected
+            projection: (0..attributes_len).collect(), // start with all attributes projected
         };
 
         for (i, attri1) in mem_table.attributes.iter().enumerate() {
             for (j, attri2) in mem_table.attributes.iter().enumerate() {
                 if i != j && attri1.0.name() == attri2.0.name() {
-                    return Err(Box::new(DBError::ConstraintError("Cannot have two attributes with the same Identifier in a table")))
+                    return Err(Box::new(DBError::ConstraintError(
+                        "Cannot have two attributes with the same Identifier in a table",
+                    )));
                 }
             }
         }
@@ -501,7 +546,9 @@ impl MemTable {
                     continue 'outer;
                 }
             }
-            return Err(DBError::ParseError("Could not find attribute to project in the given table."))
+            return Err(DBError::ParseError(
+                "Could not find attribute to project in the given table.",
+            ));
         }
         self.projection = new_projection;
         Ok(())
@@ -512,9 +559,9 @@ impl MemTable {
             return vec![String::from("\nNothing Found.\n")];
         }
 
-        let mut output: Vec<String> = Vec::with_capacity(self.records.len()*2 + 3);
+        let mut output: Vec<String> = Vec::with_capacity(self.records.len() * 2 + 3);
 
-        let mut attribute_lengths = vec![0; self.projection.len()+1]; // plus one for row numbers that will be added
+        let mut attribute_lengths = vec![0; self.projection.len() + 1]; // plus one for row numbers that will be added
         for (i, attri_num) in self.projection.iter().enumerate() {
             let (identifier, _) = &self.attributes[*attri_num];
             attribute_lengths[i] = identifier.name().len(); // two spaces and two pipe characters
@@ -534,19 +581,22 @@ impl MemTable {
 
         // loop through all instances of each attribute and check lengths... set each to the longest needed
 
-        let row_length: usize = attribute_lengths.iter().sum::<usize>() + attribute_lengths.len() * 3 + 1 + row_num_string_length;
+        let row_length: usize = attribute_lengths.iter().sum::<usize>()
+            + attribute_lengths.len() * 3
+            + 1
+            + row_num_string_length;
 
         // println stuff
 
         let row_hyphens = vec!["-"; row_length].concat();
         output.push(format!("{row_hyphens}"));
 
-        let mut top_line = Vec::with_capacity(self.attributes.len()*3+1);
+        let mut top_line = Vec::with_capacity(self.attributes.len() * 3 + 1);
         let extra_spaces = vec![" "; row_num_string_length].concat();
         top_line.push(format!("| {extra_spaces} | "));
         for (i, attri_num) in self.projection.iter().enumerate() {
             let (identifier, _) = &self.attributes[*attri_num];
-            let extra_spaces = vec![" "; attribute_lengths[i]-identifier.name().len()].concat();
+            let extra_spaces = vec![" "; attribute_lengths[i] - identifier.name().len()].concat();
             let id_string = [identifier.name().to_string(), extra_spaces].concat();
             top_line.push(id_string);
             top_line.push(" | ".to_string());
@@ -557,15 +607,15 @@ impl MemTable {
 
         // print each record
         for (i, record) in self.records.iter().enumerate() {
-            let mut new_line = Vec::with_capacity(self.attributes.len()*3+1);
-            let num_string = (i+1).to_string();
-            let extra_spaces = vec![" "; row_num_string_length-num_string.len()].concat();
+            let mut new_line = Vec::with_capacity(self.attributes.len() * 3 + 1);
+            let num_string = (i + 1).to_string();
+            let extra_spaces = vec![" "; row_num_string_length - num_string.len()].concat();
             let num_string = [num_string, extra_spaces].concat();
             new_line.push(format!("| {num_string} | "));
             for (i, attri_num) in self.projection.iter().enumerate() {
                 let data = &record[*attri_num];
                 let data_string = data.to_string(); // two spaces and two pipe characters
-                let extra_spaces = vec![" "; attribute_lengths[i]-data_string.len()].concat();
+                let extra_spaces = vec![" "; attribute_lengths[i] - data_string.len()].concat();
                 let data_string = [data_string, extra_spaces].concat();
                 new_line.push(data_string);
                 new_line.push(" | ".to_string());
@@ -592,7 +642,7 @@ impl MemTable {
         let mut projected_record = Vec::with_capacity(self.projection.len());
         for projection in self.projection.iter() {
             projected_record.push(self.records[rec_num][*projection].clone());
-        } 
+        }
 
         projected_record
     }

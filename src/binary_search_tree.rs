@@ -1,3 +1,4 @@
+use crate::base::Data;
 use std::{
     cmp::Ordering,
     error::Error,
@@ -5,7 +6,6 @@ use std::{
     fs,
     io::{self, Read, Write},
 };
-use crate::base::Data;
 
 /// An error to represent issues with attempting to insert two equal keys into a BST
 #[derive(Debug)]
@@ -14,7 +14,10 @@ pub struct BSTInsertErr;
 impl Display for BSTInsertErr {
     /// Provides a message for the BSTInsertErr
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Failed to insert into binary search tree. Key value already exists.")
+        write!(
+            f,
+            "Failed to insert into binary search tree. Key value already exists."
+        )
     }
 }
 
@@ -60,9 +63,9 @@ impl BST {
 
     /// Attempts to read a BSST back from a file. This function
     /// Assumes BST Nodes are written in order by key.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Fails when a Node cannot be read from the file.
     pub fn read_from_file(path: &str) -> Result<Self, Box<dyn Error>> {
         // Readonly file
@@ -78,7 +81,7 @@ impl BST {
         while let Some(key_len) = buf.get(index) {
             index += 1; // for the key_len just read
             let key_buf_slice = &buf[index..index + (*key_len as usize)]; // read bytes for key
-            // parse the key from bytes
+                                                                          // parse the key from bytes
             let key_vec = Vec::from(key_buf_slice);
             let key = Data::from_bytes(&key_vec)?;
             index += *key_len as usize; // for the key just read
@@ -112,9 +115,9 @@ impl BST {
     }
 
     /// Attempts to write BST to the file located at path. Writes Nodes in key order.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Fails when path is invalid or files cannot be accessed.
     pub fn write_to_file(&self, path: &str) -> Result<(), io::Error> {
         let file = fs::OpenOptions::new()
@@ -126,14 +129,11 @@ impl BST {
     }
 
     /// Attempts to write Nodes in key order to the given file.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Fails when file cannot be written to.
-    fn write_in_order_traversal(
-        curr_node: &Child,
-        mut file: &fs::File,
-    ) -> Result<(), io::Error> {
+    fn write_in_order_traversal(curr_node: &Child, mut file: &fs::File) -> Result<(), io::Error> {
         let curr_node = match curr_node {
             None => return Ok(()),
             Some(node) => node,
@@ -148,9 +148,9 @@ impl BST {
     }
 
     /// Returns a Result that indicates whether or not the Node was inserted.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Fails when the key is found in the BST already or
     /// when the key requires more bytes to store than can be
     /// expressed in a u8. Note that this should never happen with
@@ -159,7 +159,7 @@ impl BST {
         if key.as_bytes().len() > std::u8::MAX as usize {
             return Err(BSTInsertErr); // bytes stored must be < u8 so that u8 can be used to store length of key in file
         }
-    
+
         // iterative insert
         let mut curr_node = &mut self.root;
 
@@ -202,11 +202,11 @@ impl BST {
         }
     }
 
-    /// Handles a removal of a node that has two children. Returns the data contained in the 
-    /// removed Node. 
-    /// 
+    /// Handles a removal of a node that has two children. Returns the data contained in the
+    /// removed Node.
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if passed a node that is Option::None or a node which does not have at least
     /// a left child.
     fn remove_with_children(node: &mut Child) -> Option<usize> {
@@ -276,9 +276,9 @@ impl BST {
     /// Fills a Vec with the data values of all nodes in order of the keys stored with each.
     fn fill_with_data(node: &Child, data: &mut Vec<usize>) {
         if node.is_none() {
-            return
+            return;
         }
-        
+
         let node = node.as_ref().unwrap();
         // in-order traversal
         BST::fill_with_data(&node.left, data);
