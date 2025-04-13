@@ -715,7 +715,7 @@ impl RelOp {
 /// Returns the split up strings as a tuple.
 fn split_word(given: &str) -> (&str, &str) {
     for (i, c) in given.char_indices() {
-        if !c.is_ascii_alphanumeric() && c != '"' && c != '.' && c != '-' {
+        if !c.is_ascii_alphanumeric() && c != '"' && c != '.' && c != '-' && c != '_' {
             return (&given[..i], &given[i..]);
         }
     }

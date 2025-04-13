@@ -283,7 +283,7 @@ pub fn select_from_tables(cmd: &str, db: &mut Database) -> Result<MemTable, Box<
 
     let mut select_table = cond.select(tables)?;
 
-    if select_attributes.len() != 1 || select_attributes[0] != "*" {
+    if select_attributes.len() != 1 || select_attributes[0] != "all" {
         select_table.project(select_attributes)?;
     }
 
