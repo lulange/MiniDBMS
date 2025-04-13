@@ -59,12 +59,3 @@ fn main() {
         }
     }
 }
-
-// BIG TODOS
-/*
-3. Comment all functions, modules, structs, etc to some specific format // get rid of unnecessary pub keywords
-4. Create tests to ensure all logic works correctly / maybe split some functions for testing
-5. Last pass, check over everything line by line and do real-world testing
-6. Come up with some cool name for it and run it by the professor and ask for feedback
-7. Fix stuff for him and turn it in. Count up lines of code for programmer clout
-*/

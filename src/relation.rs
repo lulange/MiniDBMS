@@ -1,4 +1,4 @@
-use super::base::{Data, Domain, Float, Identifier, Integer, Text};
+use crate::base::{Data, Domain, Float, Identifier, Integer, Text};
 use crate::binary_search_tree::{BSTInsertErr, BST};
 use crate::logic::Condition;
 use crate::DBError;
@@ -8,8 +8,9 @@ use std::io::{Read, Seek};
 use std::io::{SeekFrom, Write};
 use std::vec;
 
-// TODO comments
-
+/// An object providing table management in files.
+/// Tables will save themselves in .dat files and save
+/// their bsts in .index files.
 pub struct Table {
     attributes: Vec<(Identifier, Domain)>,
     record_count: usize,
@@ -21,6 +22,16 @@ pub struct Table {
 }
 
 impl Table {
+    /// Create an instance of Table and save its metadata to a file. Also
+    /// create the file for the bst if specified.
+    /// The files created will use the format '{dir}{name}.{ext}'
+    ///
+    /// # Errors
+    ///
+    /// Fails when cannot write to the filesystem or
+    /// when there are two attributes given in the list that have the
+    /// same name. Also requires that the primary_key, if specified,
+    /// must be within the bounds of the table's attributes.
     pub fn build(
         name: &str,
         attributes: Vec<(Identifier, Domain)>,
@@ -91,6 +102,11 @@ impl Table {
         })
     }
 
+    /// Attempts to remove the table and its bst from the filesystem and consume the instance.
+    ///
+    /// # Errors
+    ///
+    /// Fails when cannot find or delete the files.
     pub fn clean_up(self) -> Result<(), Box<dyn Error>> {
         fs::remove_file(&self.file_path)?;
         match self.bst {
@@ -104,10 +120,22 @@ impl Table {
         Ok(())
     }
 
+    /// Returns a reference to the Table's attributes list
     pub fn attributes(&self) -> &Vec<(Identifier, Domain)> {
         &self.attributes
     }
 
+    /// Attempts to read the metadata of a Table from the file given by
+    /// '{dir}{name}.dat'. Note, this will search for a file in the form
+    /// '{dir}{name}.index' that represents a bst for this table and load that as well.
+    /// Returns the instance of Table read if successful.
+    ///
+    /// # Errors
+    ///
+    /// Fails when cannot read from a file or when
+    /// Table metadata has incorrect formatting due to
+    /// corruption or by the file not being created
+    /// by an instance of Table
     pub fn read_from_file(name: &str, dir: &str) -> Result<Self, Box<dyn Error>> {
         let _ = Identifier::from(name)?; // does copy the string but more importantly fails if name is not an identifier
         let name = name.to_string();
@@ -178,6 +206,14 @@ impl Table {
         })
     }
 
+    /// Attempts to write the record_count of a Table instance to the file
+    /// the table was read from or originally wrote itself to. This is necessary
+    /// since record count does not need to be written every time a record is written
+    /// in the case of mass deletion or updates.
+    ///
+    /// # Errors
+    ///
+    /// Fails when cannot write to the file.
     pub fn write_record_count(&self) -> Result<(), Box<dyn Error>> {
         let mut file = OpenOptions::new()
             .write(true)
@@ -188,6 +224,12 @@ impl Table {
         Ok(())
     }
 
+    /// Creates a string representation for each attribute and pushes
+    /// each representation to a vector. This is used to get formatted
+    /// information to describe the table to the user.
+    ///
+    /// Indicates the name and domain for each attribute as well as
+    /// the location of the primary key.
     pub fn attributes_to_string_vec(&self) -> Vec<String> {
         let mut output = Vec::new();
         let attri_iter = self.attributes.iter();
@@ -216,6 +258,17 @@ impl Table {
         output
     }
 
+    /// Attempts to write the given record to the file
+    /// the table was read from or originally wrote itself to.
+    /// Does not write the updated record_count although it does
+    /// add one to it in memory. Records are always written at the
+    /// end of the table.
+    ///
+    /// # Errors
+    ///
+    /// Fails when cannot write to the file or
+    /// when the record does not match the format of
+    /// the Table instance.
     pub fn write_record(&mut self, record: Vec<Data>) -> Result<(), Box<dyn Error>> {
         let mut file = OpenOptions::new().append(true).open(&self.file_path)?;
         let mut record_bytes: Vec<u8> = Vec::new();
@@ -247,11 +300,25 @@ impl Table {
         Ok(())
     }
 
+    /// An alias for calling write_record and write_record_count successively.
+    ///
+    /// # Errors
+    ///
+    /// Fails when cannot write to the file or
+    /// when the record does not match the format of
+    /// the Table instance.
     pub fn write_single_record(&mut self, record: Vec<Data>) -> Result<(), Box<dyn Error>> {
         self.write_record(record)?;
         self.write_record_count()
     }
 
+    /// Attempts to read a record back from the file.
+    /// When successful, returns the record wrapped in an Ok variant.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the file cannot be read from or
+    /// when the file is in a bad format.
     pub fn read_record(&self, record_num: usize) -> Result<Vec<Data>, Box<dyn Error>> {
         if record_num > self.record_count {
             return Err(Box::new(DBError::ConstraintError(
@@ -291,6 +358,13 @@ impl Table {
         Ok(record)
     }
 
+    /// Attempts to write this Table's bst to the file.
+    /// If the Table has no bst, it will simply return an
+    /// empty Ok variant immediately.
+    ///
+    /// # Errors
+    ///
+    /// Fails when cannot write to the file.
     pub fn write_bst(&self) -> Result<(), std::io::Error> {
         if let Some(ref bst) = self.bst {
             let mut bst_path = self.file_path.clone();
@@ -301,6 +375,12 @@ impl Table {
         }
     }
 
+    /// Attempts to read every record in the order stored in the file.
+    ///
+    /// # Errors
+    ///
+    /// Fails if cannot read from the file or
+    /// when a record is found in a bad format.
     fn read_all_data(&self) -> Result<Vec<Vec<Data>>, Box<dyn Error>> {
         let mut file = File::open(&self.file_path)?;
         let mut records_bytes: Vec<u8> = vec![0; self.record_length as usize * self.record_count];
@@ -336,6 +416,14 @@ impl Table {
         Ok(records)
     }
 
+    /// Attempts to overwrite the attribute names in the file
+    /// and in memory. Note, this will not change the in memory
+    /// storage if it cannot write to the file.
+    ///
+    /// # Errors
+    ///
+    /// Fails when given a new set of attributes with duplicated names
+    /// or when cannot write to the file.
     pub fn rename_attributes(
         &mut self,
         new_attributes: Vec<Identifier>,
@@ -366,6 +454,15 @@ impl Table {
         Ok(())
     }
 
+    /// Similar to write_record except that this writes over a specific location
+    /// in the file to replace an existing record and does not update the record_count.
+    /// Also updates the attached bst when a key value is changed.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the new_values for the record do not match the Table's attributes or
+    /// when the file cannot be written to. Also requires that the record_num
+    /// given is within the Table's record_count.
     fn update_record(
         &mut self,
         record_num: usize,
@@ -425,6 +522,18 @@ impl Table {
         Ok(())
     }
 
+    /// Calls update_record for each record selected by the converted condition. This function is used
+    /// by Condition itself, so using Condition.update is preferred over using this. Puts labelled values in
+    /// new_values into each record it writes over.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the Condition provided has not been converted to use the given Table - i.e. called by
+    /// something other than Condition.update. Also fails for all the reasons update_record fails including
+    /// file access issues and incorrect record formatting.
+    ///
+    /// In addition, this ensures that a user does not update more than one key value in the table to the same
+    /// value.
     pub fn update_all(
         &mut self,
         cond: Condition,
@@ -453,15 +562,32 @@ impl Table {
         Ok(())
     }
 
+    /// Removes each record selected by the converted condition. This function is used
+    /// by Condition itself, so using Condition.delete is preferred over using this. Note
+    /// that this does not preserve the order of the records in the file. Instead, loads
+    /// all records, looks for the records to delete through the Condition and
+    /// swap-removes them from highest to lowest position in the file. The bst is then
+    /// reconstructed after deletion.
+    ///
+    /// # Errors
+    ///
+    /// Fails when cannot read/write to files or when the Condition provided has not been
+    /// converted to use the given Table - i.e. called by something other than Condition.delete
     pub fn delete_all(&mut self, cond: Condition) -> Result<(), Box<dyn Error>> {
         let mut mem_tables = vec![MemTable::build(self)?];
         let mut record_nums = cond.filter_table_coords(&mem_tables, 0, &self.bst, &vec![self]);
         let mut mem_table = mem_tables.remove(0);
-        record_nums.sort();
+
+        if record_nums.len() == 0 {
+            return Ok(());
+        }
+
+        record_nums.sort(); // could be in bst order but we want highest to lowest table position
         for record_num in record_nums.into_iter().rev() {
             mem_table.records.swap_remove(record_num); // must swap remove highest numbers first
         }
 
+        // clear the bst
         match self.bst {
             None => (),
             Some(ref mut bst) => *bst = BST::new(),
@@ -470,13 +596,14 @@ impl Table {
         let file = OpenOptions::new().write(true).open(&self.file_path)?;
         file.set_len(self.meta_offset as u64)?;
 
-        self.record_count = 0;
+        self.record_count = 0; // set to 0 since write_record_count will increment it
 
         for record in mem_table.records {
             self.write_record(record)?;
         }
         self.write_record_count()?;
 
+        // recreate the bst
         match self.bst {
             None => (),
             Some(ref mut bst) => {
@@ -491,9 +618,7 @@ impl Table {
     }
 }
 
-// If this were to ever work with tables larger than can reasonably be loaded all into memory,
-// then it would be best to change a MemTable to give a stream/iterator which loads the records in blocks
-// However, for the sake of this mini DBMS, loading the whole table is good enough.
+/// A representation for Tables loaded into memory, equipped with the tools for selection type operations
 pub struct MemTable {
     pub records: Vec<Vec<Data>>,
     pub attributes: Vec<(Identifier, Domain)>,
@@ -501,6 +626,11 @@ pub struct MemTable {
 }
 
 impl MemTable {
+    /// Attempt to create a MemTable based on a Table.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the table's file cannot be loaded.
     pub fn build(table: &Table) -> Result<Self, Box<dyn Error>> {
         Ok(MemTable {
             records: table.read_all_data()?,
@@ -513,6 +643,14 @@ impl MemTable {
         })
     }
 
+    /// Attempts to create a MemTable from an attribute list and a list of records.
+    /// Note that this does not check for the records being the same length or having
+    /// the same datatype order. This is rather for situations in which bypassing those
+    /// checks is a handy shortcut.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the attributes list has duplicate Identifiers
     pub fn build_from_records(
         records: Vec<Vec<Data>>,
         attributes: Vec<(Identifier, Domain)>,
@@ -537,6 +675,14 @@ impl MemTable {
         Ok(mem_table)
     }
 
+    /// Culls the projection list based on the selected_attris list. Note that
+    /// this does not actually change any of the records in the MemTable. Instead,
+    /// it changes the attribute numbers remembered as projected for other functions.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the selected_attris tries to project an attribute that does
+    /// not exist in the current projection.
     pub fn project(&mut self, selected_attris: Vec<&str>) -> Result<(), DBError> {
         let mut new_projection = Vec::new();
         'outer: for selected in selected_attris.iter() {
@@ -554,6 +700,8 @@ impl MemTable {
         Ok(())
     }
 
+    /// Returns a vector of strings such that when each is printed with a \n attached
+    /// the MemTable comes out nicely formatted. This pays attention to the projection list.
     pub fn to_string_vec(&self) -> Vec<String> {
         if self.records.len() == 0 {
             return vec![String::from("\nNothing Found.\n")];
@@ -628,6 +776,8 @@ impl MemTable {
         output
     }
 
+    /// Returns the list of attributes left in the projection list. Helpful for creating a new Table
+    /// out of this MemTable
     pub fn get_projected_attribute_list(&self) -> Vec<&(Identifier, Domain)> {
         let mut project_attris = Vec::with_capacity(self.projection.len());
 
@@ -638,6 +788,11 @@ impl MemTable {
         project_attris
     }
 
+    /// Returns a given record with only the projected attributes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if asked for a record out of the records list length.
     pub fn get_projected_record(&self, rec_num: usize) -> Vec<Data> {
         let mut projected_record = Vec::with_capacity(self.projection.len());
         for projection in self.projection.iter() {
