@@ -31,12 +31,19 @@ CREATE TABLE TableName ‘(‘ AttrName Domain [PRIMARY KEY] [,AttrName Domain]*
 ```
 
 Dbname		=> Identifier
+
 TableName	=> Identifier
+
 AttrName	=> Identifier
+
 Identifier	=> alphanumeric*
+
 Domain		=> Integer | Text | Float
+
 Float		=> Integer [. Digit [Digit]]
+
 Text		=> 100 or fewer characters
+
 Integer	    => 32-bit sized integer
 
 *Identifiers may contain all characters ascii-alphanumeric or underscores as long as they are not only numeric.
@@ -52,12 +59,19 @@ FROM TableNameList
 ```
 
 AttrNameList  => AttrName [,AttrName]*
+
 TableNameList => TableName [,TableName]*
+
 RelOp         => <, >, <=, >=, =, !=
+
 Constant      => IntConst | StringConst | FloatConst
+
 IntConst      => 32-bit sized integer
+
 StringConst   => ‘“’ [up to 30 characters] ‘”’
+
 FloatConst	  => 64-bit sized float
+
 Condition     =>  AttrName RelOp (Constant|AttrName) [(and|or) AttrName RelOp Constant|AttrName]*
 
 
@@ -72,13 +86,19 @@ DESCRIBE (ALL | TableName) ‘;’
 Displays to the screen the listed table or ALL tables and their attributes and types. Also indicate the primary key attributes.
 
 E.g.
+
 STUDENT
+
 NAME: 	 	Text
+
 ID:		    Integer	PRIMARY KEY
 
 EMPLOYEE
+
 Name:		Text
+
 SSN:		Integer	PRIMARY KEY
+
 Salary:	    Float
 
 
