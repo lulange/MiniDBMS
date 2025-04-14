@@ -256,8 +256,16 @@ fn run_update(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     };
 
     // split out new_values list
-    let (new_values, condition) = match cmd.split_once(" where ") {
-        Some((new_values, condition)) => (new_values.trim(), condition.trim()),
+    let (new_values, condition) = match cmd.split_once(" where") {
+        Some((new_values, condition)) => {
+            if condition.starts_with(' ') || condition.starts_with('(') {
+                (new_values.trim(), condition.trim())
+            } else {
+                Err(DBError::ParseError(
+                    "Could not parse clause after SET clause in UPDATE.",
+                ))?
+            }
+        },
         None => (cmd, ""), // empty condition = always true
     };
 
@@ -265,7 +273,7 @@ fn run_update(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     let table = match db.table_map.get_mut(table_name) {
         Some(table) => table,
         None => {
-            return Err(DBError::ParseError(
+            Err(DBError::ParseError(
                 "Could not find a table with that name to update.",
             ))?
         }
@@ -291,9 +299,16 @@ fn run_update(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
 fn run_delete(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     // if a condition is given the table will be culled from, else delete the whole table
     // uses one of two helper functions for each case
-    match cmd.split_once(" where ") {
-        // an empty condition - aka 'WHERE\s;' - will clear the table but leave the schema
-        Some((table_name, condition)) => delete_tuples(db, table_name.trim(), condition.trim())?,
+    match cmd.split_once(" where") {
+        Some((table_name, condition)) => {
+            if condition.starts_with(' ') || condition.starts_with('(') {
+                delete_tuples(db, table_name.trim(), condition.trim())?
+            } else {
+                Err(DBError::ParseError(
+                    "Could not parse clause after table name in DELETE.",
+                ))?
+            }
+        },
         None => delete_table(db, cmd.trim())?,
     }
     eprintln!("\tDELETE Success!");
@@ -384,7 +399,7 @@ fn run_use(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
 /// Also fails when the file cannot be written to.
 fn run_insert(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> {
     // split out table_name
-    let (table_name, cmd) = match cmd.split_once(" values ") {
+    let (table_name, cmd) = match cmd.split_once(" values") {
         Some((table_name, cmd)) => (table_name.trim(), cmd.trim()),
         None => {
             return Err(Box::new(DBError::ParseError(

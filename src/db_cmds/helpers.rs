@@ -78,13 +78,17 @@ pub fn create_table(cmd: &str, db: &mut Database) -> Result<(), Box<dyn Error>> 
         )));
     }
 
-    let (table_name, cmd) = match cmd.split_once(' ') {
-        Some(tuple) => tuple,
-        None => {
-            return Err(Box::new(DBError::ParseError(
-                "Not enough arguments for CREATE TABLE.",
-            )))
+    let cmd = cmd.trim_start();
+    let (table_name, cmd) = 'block: {
+        for (i, c) in cmd.char_indices() {
+            if !c.is_ascii_alphanumeric() && c != '_' {
+                break 'block (&cmd[..i], &cmd[i..]);
+            }
         }
+
+        return Err(Box::new(DBError::ParseError(
+            "Not enough arguments for CREATE TABLE.",
+        )))
     };
 
     if db.table_map.get(table_name).is_some() {
@@ -254,8 +258,16 @@ pub fn select_from_tables(cmd: &str, db: &mut Database) -> Result<MemTable, Box<
         }
     };
 
-    let (table_name_list, condition) = match cmd.split_once(" where ") {
-        Some((table_name_list, condition)) => (table_name_list, condition.trim()),
+    let (table_name_list, condition) = match cmd.split_once(" where") {
+        Some((table_name_list, condition)) => {
+            if condition.starts_with(' ') || condition.starts_with('(') {
+                (table_name_list, condition.trim())
+            } else {
+                return Err(Box::new(DBError::ParseError(
+                    "Could not parse clause after FROM clause in SELECT.",
+                )))
+            }
+        }
         None => (cmd, ""), // "" here since no condition is always true
     };
 
