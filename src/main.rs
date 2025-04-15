@@ -1,5 +1,5 @@
-use dbms::BSTInsertErr;
-use dbms::{CmdIterator, DBError, Database};
+use mini_dbms::BSTInsertErr;
+use mini_dbms::{CmdIterator, DBError, Database};
 use std::io;
 use std::io::Write;
 
@@ -29,7 +29,7 @@ fn main() {
 
         // iterate over all commands currently in cmds
         for cmd in CmdIterator::over(&cmds) {
-            match dbms::run_cmd(cmd.trim_start(), &mut db) {
+            match mini_dbms::run_cmd(cmd.trim_start(), &mut db) {
                 Err(err) => {
                     eprintln!("\t{}", err);
                     // these error types are acceptable and come with more helpful messages for the user
@@ -39,7 +39,7 @@ fn main() {
                     }
 
                     // save table sizes and bst indices since those are otherwise kept in memory
-                    dbms::run_exit(&mut db).expect("FAILED TO SAVE ON EXIT");
+                    mini_dbms::run_exit(&mut db).expect("FAILED TO SAVE ON EXIT");
                 }
 
                 Ok(output) => {

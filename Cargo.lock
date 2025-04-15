@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "dbms"
+name = "mini_dbms"
 version = "1.0.0"

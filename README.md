@@ -8,10 +8,20 @@ Currently, the only way to run the MiniDBMS is from source. Luckily, it is entir
 Just clone the repository and use cargo to run it.
 
 ```console
-git clone https://github.com/lulange/MiniDBMS.git
-cd MiniDBMS
+git clone https://github.com/lulange/mini_dbms.git
+cd mini_dbms
 cargo run
 ```
+
+If you don't have cargo, that can be found with the rest of the Rust ecosystem's tools
+at https://www.rust-lang.org/tools/install
+
+This generally points to using rustup. On a mac, it will direct you to run this.
+
+```
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
 
 ## Command Specifications
 
