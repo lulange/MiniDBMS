@@ -714,8 +714,14 @@ impl RelOp {
 /// Splits off a specified set of characters (mostly ascii-alphanumeric) until it sees a character not in the set.
 /// Returns the split up strings as a tuple.
 fn split_word(given: &str) -> (&str, &str) {
+    let mut double_quotes = false;
     for (i, c) in given.char_indices() {
-        if !c.is_ascii_alphanumeric() && c != '"' && c != '.' && c != '-' && c != '_' {
+        if c == '"' {
+            double_quotes = !double_quotes;
+            continue;
+        }
+
+        if !double_quotes && !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != '_' {
             return (&given[..i], &given[i..]);
         }
     }
